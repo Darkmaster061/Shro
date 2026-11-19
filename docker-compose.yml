@@ -1,0 +1,13 @@
+services:
+  portal:
+    build: .
+    container_name: gonabad-orientation-portal
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./backups:/app/backups
