@@ -16,6 +16,8 @@ import {
   OFFICIAL_UNIVERSITY_CONTACT,
   OFFICIAL_WELLNESS_SERVICES,
   REGISTRATION_CHECKLIST,
+  REGISTRATION_GUIDE_VIDEO,
+  REGISTRATION_ONSITE_STEPS,
   REGISTRATION_TIMELINE,
   REQUIRED_DOCUMENTS,
 } from '../src/data/orientation';
@@ -301,6 +303,8 @@ export function buildOfflinePortalHtml(snapshot: OfflinePortalSnapshot): string 
       axisMeta: BASIJ_AXIS_META,
       majors: MAJOR_RECOMMENDATIONS,
       checklist: REGISTRATION_CHECKLIST,
+      onsiteSteps: REGISTRATION_ONSITE_STEPS,
+      guideVideoNotice: REGISTRATION_GUIDE_VIDEO.stepZeroNotice,
       documents: REQUIRED_DOCUMENTS,
       regTimeline: REGISTRATION_TIMELINE,
       problems: COMMON_PROBLEMS,
@@ -976,6 +980,12 @@ footer { margin-top: 48px; border-top: 1px solid var(--line); padding: 24px 16px
             '<div><strong>' + esc(st.title) + '</strong><p class="muted" style="font-size:13px;margin:4px 0">' + esc(st.description) + '</p><span class="muted" style="font-size:11px">' + esc(st.location) + ' · ' + esc(st.duration) + '</span></div></button>';
         }).join('') +
       '</div></section>' +
+
+      '<section class="section card"><p class="kicker">مسیر کامل ثبت‌نام حضوری (ویدیوی راهنما در نسخه آنلاین سایت قابل پخش است)</p><h2>۰۱.۵ گام‌های حضوری روز ثبت‌نام (گام ۰ بسیج تا گام ۱۲)</h2>' +
+        '<div class="card-sm" style="border-color:#22d3ee;background:rgba(34,211,238,0.1);font-size:13px">' + esc(ST.guideVideoNotice) + '</div>' +
+        '<div class="grid g2">' +
+          ST.onsiteSteps.map((s) => '<div class="card-sm" style="' + (s.isNewThisYear ? 'border-color:#22d3ee;background:rgba(34,211,238,0.08)' : '') + '"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px"><strong style="color:' + (s.isNewThisYear ? '#22d3ee' : 'var(--gold)') + '">' + esc(s.stepLabel) + (s.badge ? ' · ' + esc(s.badge) : '') + '</strong>' + (s.videoTimeLabel ? '<span class="muted" style="font-size:11px">' + esc(s.videoTimeLabel) + '</span>' : '') + '</div><strong style="font-size:13px;display:block">' + esc(s.title) + '</strong><p class="muted" style="font-size:12px;margin:4px 0 0">' + esc(s.description) + '</p>' + (s.subSteps ? '<p style="font-size:11px;margin:6px 0 0;color:var(--gold)">' + esc(s.subSteps.join(' · ')) + '</p>' : '') + '</div>').join('') +
+        '</div></section>' +
 
       '<section class="section"><h2>۰۲. مدارک لازم ثبت‌نام حضوری (' + toFa(ST.documents.length) + ' بند رسمی)</h2><div class="grid g3">' +
         ST.documents.map((doc) => '<div class="card-sm"><p class="kicker">' + toFa(doc.order) + ' · ' + esc(doc.groupTag) + '</p><strong style="font-size:13px">' + esc(doc.title) + '</strong><p class="muted" style="font-size:12px;margin:4px 0 0">' + esc(doc.note) + '</p></div>').join('') +

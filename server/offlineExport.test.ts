@@ -148,6 +148,10 @@ test('collectOfflineSnapshot queries live SQLite schema cleanly and embeds local
   assert.ok(html.includes('اتاق ۲۲۳'), 'Expected free general physician room');
   assert.ok(html.includes('مهشید کوهستانی'), 'Expected dorm counselor name');
   assert.ok(html.includes('یارانه غذای دانشجویی'), 'Expected official food pricing table');
+  assert.ok(html.includes('گام ۰'), 'Expected Step 0 Basij to remain intact');
+  assert.ok(html.includes('هم‌اندیشی والدین'), 'Expected Step 2 parents session from walkthrough video');
+  assert.ok(html.includes('۱۱/۳ وام دانشجویی'), 'Expected Step 11 sub-steps from walkthrough video');
+  assert.ok(html.includes('فعال‌سازی کارت تغذیه'), 'Expected Step 12 cafeteria card activation');
   assert.equal(html.includes('birth_hash'), false);
   assert.equal(html.includes('password_hash'), false);
   // Extract inline app script and assert valid JavaScript syntax

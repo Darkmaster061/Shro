@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -9,15 +9,19 @@ import {
   ExternalLink,
   FileText,
   GraduationCap,
+  MapPin,
   Phone,
+  PlayCircle,
   Printer,
   RefreshCw,
   Search,
   Send,
+  Sparkles,
   Stethoscope,
   ThumbsDown,
   ThumbsUp,
   Utensils,
+  Video,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { usePortal } from '../context/PortalContext';
@@ -31,6 +35,8 @@ import {
   OFFICIAL_UNIVERSITY_CONTACT,
   OFFICIAL_WELLNESS_SERVICES,
   REGISTRATION_CHECKLIST,
+  REGISTRATION_GUIDE_VIDEO,
+  REGISTRATION_ONSITE_STEPS,
   REGISTRATION_TIMELINE,
   REQUIRED_DOCUMENTS,
 } from '../data/orientation';
@@ -55,6 +61,22 @@ export const GuidePage: React.FC = () => {
   const [majorQuery, setMajorQuery] = useState('');
   const [selectedMajor, setSelectedMajor] = useState<string | null>(null);
   const [docsFilter, setDocsFilter] = useState<'essential' | 'all'>('all');
+
+  // ویدیوی راهنمای ثبت‌نام حضوری (گام ۰ بسیج + گام ۱ تا ۱۲)
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [activeOnsiteStep, setActiveOnsiteStep] = useState<number>(0);
+
+  const handleSelectOnsiteStep = (stepNumber: number, videoSec: number | null) => {
+    setActiveOnsiteStep(stepNumber);
+    if (videoSec !== null && videoRef.current) {
+      try {
+        videoRef.current.currentTime = videoSec;
+        videoRef.current.play().catch(() => {});
+      } catch {
+        // در صورت آماده نبودن متادیتای ویدیو، کاربر با دکمه پخش اجرا می‌کند
+      }
+    }
+  };
 
   // سوالات متداول
   const [allFaqs, setAllFaqs] = useState<FaqItem[]>([]);
@@ -399,6 +421,152 @@ export const GuidePage: React.FC = () => {
               </button>
             );
           })}
+        </div>
+      </section>
+
+      {/* ۱.۵ ویدیوی رسمی راهنمای ثبت‌نام حضوری و مسیر ۱۳ گام (گام ۰ بسیج + گام ۱ تا ۱۲) */}
+      <section
+        id="onsite-steps-video"
+        aria-labelledby="onsite-steps-heading"
+        className="rounded-3xl border border-gold/35 bg-surface p-5 sm:p-7 space-y-6"
+      >
+        <div className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
+          <div className="space-y-1.5">
+            <p className="text-xs font-bold text-gold inline-flex items-center gap-1.5">
+              <Video className="w-4 h-4" />
+              <span>راهنمای تصویری روز ثبت‌نام حضوری · مدت {REGISTRATION_GUIDE_VIDEO.durationLabel}</span>
+            </p>
+            <h2 id="onsite-steps-heading" className="text-xl sm:text-2xl font-extrabold text-ink">
+              ۰۱.۵ ویدیوی راهنمای ثبت‌نام و مسیر کامل گام ۰ تا گام ۱۲
+            </h2>
+            <p className="text-xs sm:text-sm text-ink-muted max-w-2xl">
+              روی هر گام از فهرست کنار ویدیو کلیک کن تا توضیحاتش را ببینی و مستقیم به همان ثانیه از ویدیوی راهنمای دانشگاه بپری.
+            </p>
+          </div>
+          <a
+            href="#map"
+            className="min-h-[38px] px-3.5 rounded-xl border border-line bg-canvas hover:border-gold/50 text-xs font-semibold text-ink inline-flex items-center gap-1.5"
+          >
+            <MapPin className="w-3.5 h-3.5 text-gold" />
+            <span>مشاهده محل گام صفر روی نقشه</span>
+          </a>
+        </div>
+
+        {/* یادآوری برجسته گام صفر (بسیج دانشجویی) */}
+        <div className="rounded-2xl border border-cyan-400/45 bg-cyan-500/10 p-4 flex items-start gap-3">
+          <Sparkles className="w-5 h-5 text-cyan-300 shrink-0 mt-0.5" />
+          <div className="space-y-1 text-xs sm:text-sm">
+            <p className="font-extrabold text-ink">
+              گام ۰ (بسیج دانشجویی) — اضافه‌شده در سال جاری پیش از گام ۱
+            </p>
+            <p className="text-ink-muted leading-6">
+              {REGISTRATION_GUIDE_VIDEO.stepZeroNotice}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* ستون پخش‌کننده ویدیوی عمودی (محلی، بدون autoplay) */}
+          <div className="lg:col-span-4 space-y-3 lg:sticky lg:top-24">
+            <div className="rounded-2xl border border-line bg-[#04110f] overflow-hidden shadow-xl max-w-[340px] mx-auto">
+              <video
+                ref={videoRef}
+                src={REGISTRATION_GUIDE_VIDEO.src}
+                poster={REGISTRATION_GUIDE_VIDEO.poster}
+                controls
+                playsInline
+                preload="metadata"
+                aria-label={REGISTRATION_GUIDE_VIDEO.title}
+                className="w-full aspect-[9/16] object-contain bg-black block"
+              >
+                مرورگر شما از پخش ویدیوی HTML5 پشتیبانی نمی‌کند.
+              </video>
+            </div>
+            <p className="text-[11px] text-ink-muted text-center leading-5 px-2">
+              {REGISTRATION_GUIDE_VIDEO.boothsNote}
+            </p>
+          </div>
+
+          {/* ستون نقشه گام ۰ تا گام ۱۲ */}
+          <div className="lg:col-span-8 space-y-2.5">
+            {REGISTRATION_ONSITE_STEPS.map((step) => {
+              const isSelected = activeOnsiteStep === step.stepNumber;
+              const isStepZero = step.isNewThisYear;
+              return (
+                <button
+                  key={step.stepNumber}
+                  type="button"
+                  onClick={() => handleSelectOnsiteStep(step.stepNumber, step.videoSec)}
+                  aria-pressed={isSelected}
+                  className={`w-full text-right rounded-2xl border p-4 transition-all cursor-pointer flex items-start gap-3.5 ${
+                    isStepZero
+                      ? isSelected
+                        ? 'border-cyan-400 bg-cyan-500/15 shadow-md shadow-cyan-500/10'
+                        : 'border-cyan-400/50 bg-cyan-500/8 hover:border-cyan-300'
+                      : isSelected
+                        ? 'border-gold bg-gold-soft/70'
+                        : 'border-line bg-canvas hover:border-gold/45'
+                  }`}
+                >
+                  <span
+                    className={`min-w-[54px] px-2 py-1.5 rounded-xl text-xs font-extrabold text-center shrink-0 tabular-nums ${
+                      isStepZero
+                        ? 'bg-cyan-400 text-[#051815]'
+                        : isSelected
+                          ? 'bg-gold text-[#071714]'
+                          : 'bg-surface border border-line text-gold'
+                    }`}
+                  >
+                    {step.stepLabel}
+                  </span>
+
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="text-sm sm:text-base font-bold text-ink leading-snug">
+                        {step.title}
+                      </h3>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {step.badge && (
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                              isStepZero
+                                ? 'bg-cyan-400/20 text-cyan-200 border border-cyan-400/40'
+                                : 'bg-surface border border-line text-gold'
+                            }`}
+                          >
+                            {step.badge}
+                          </span>
+                        )}
+                        {step.videoTimeLabel && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface border border-line text-[11px] font-semibold text-ink-muted tabular-nums">
+                            <PlayCircle className="w-3 h-3 text-gold" />
+                            <span>{step.videoTimeLabel}</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-xs sm:text-sm text-ink-muted leading-6">
+                      {step.description}
+                    </p>
+
+                    {step.subSteps && step.subSteps.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {step.subSteps.map((sub) => (
+                          <span
+                            key={sub}
+                            className="px-2.5 py-1 rounded-lg border border-line bg-surface text-[11px] font-semibold text-ink"
+                          >
+                            {sub}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </section>
 
