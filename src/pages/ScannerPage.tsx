@@ -18,6 +18,7 @@ import { api } from '../api/client';
 import { useOnlineStatus } from '../hooks/usePWAInstall';
 import { formatJalaliTime } from '../utils/jalali';
 import { normalizeNameCompact, toPersianDigits } from '../utils/persian';
+import { checkSingleBreakfastEligibility, findStudentExistingClaim } from '../utils/coupon';
 import type {
   AdminUser,
   MealItem,
@@ -200,14 +201,21 @@ export const ScannerPage: React.FC = () => {
       }
 
       const studentName = `${stu.firstName} ${stu.lastName}`;
-      const alreadyAt = stu.claimedAtByMeal[selectedMealId];
-      if (alreadyAt) {
+      const eligibility = checkSingleBreakfastEligibility(stu.claimedAtByMeal, selectedMealId);
+      if (!eligibility.allowed) {
+        const prevMeal = meals.find((m) => m.id === eligibility.existingMealId);
+        const prevMealTitle = prevMeal?.name || 'وعده قبلی';
         const res: ScanClaimResponse = {
           status: 'already_claimed',
-          message: 'قبلاً دریافت کرده (حالت آفلاین)',
+          message:
+            eligibility.reason === 'already_claimed_same_meal'
+              ? 'قبلاً در همین وعده دریافت کرده (حالت آفلاین)'
+              : `قبلاً در «${prevMealTitle}» صبحانه دریافت کرده — سهمیه هر نوورودی فقط یک نوبت در کل روزهای ثبت‌نام است (حالت آفلاین)`,
           studentName,
-          claimedAt: alreadyAt,
-          mealName,
+          claimedAt: eligibility.existingClaimedAtIso,
+          mealName: prevMealTitle,
+          previousMealName: prevMealTitle,
+          claimedDateJalali: prevMeal?.dateJalali,
         };
         setOverlay(res);
         playFeedbackTone('already_claimed');
@@ -314,11 +322,12 @@ export const ScannerPage: React.FC = () => {
 
   const liveStats = useMemo(() => {
     const activeStudents = cachedStudents.filter((s) => s.active);
-    const claimed = activeStudents.filter((s) => Boolean(s.claimedAtByMeal[selectedMealId])).length;
+    const claimedToday = activeStudents.filter((s) => Boolean(s.claimedAtByMeal[selectedMealId])).length;
+    const claimedAnyDay = activeStudents.filter((s) => Boolean(findStudentExistingClaim(s.claimedAtByMeal))).length;
     return {
       total: activeStudents.length,
-      claimed,
-      remaining: Math.max(0, activeStudents.length - claimed),
+      claimed: claimedToday,
+      remaining: Math.max(0, activeStudents.length - claimedAnyDay),
     };
   }, [cachedStudents, selectedMealId]);
 
@@ -463,13 +472,13 @@ export const ScannerPage: React.FC = () => {
               <div className="text-2xl font-extrabold text-emerald-500 tabular-nums">
                 {toPersianDigits(liveStats.claimed)}
               </div>
-              <div className="text-xs text-ink-muted">دریافت کرده</div>
+              <div className="text-xs text-ink-muted">دریافت امروز</div>
             </div>
             <div className="rounded-xl bg-gold-soft border border-gold/30 p-3">
               <div className="text-2xl font-extrabold text-gold tabular-nums">
                 {toPersianDigits(liveStats.remaining)}
               </div>
-              <div className="text-xs text-ink-muted">باقی‌مانده</div>
+              <div className="text-xs text-ink-muted">سهمیه باقی‌مانده کل</div>
             </div>
             <div className="rounded-xl bg-canvas border border-line p-3">
               <div className="text-2xl font-extrabold text-ink tabular-nums">
@@ -478,6 +487,10 @@ export const ScannerPage: React.FC = () => {
               <div className="text-xs text-ink-muted">کل لیست</div>
             </div>
           </div>
+
+          <p className="text-[11px] text-amber-400/95 bg-amber-500/10 border border-amber-500/25 rounded-xl px-3 py-2 leading-relaxed">
+            قانون قطعی: هر دانشجو در کل روزهای ثبت‌نام فقط <strong>یک نوبت</strong> (در همان روز ثبت‌نام خود) مجاز به دریافت صبحانه است.
+          </p>
 
           {pendingQueue.length > 0 && (
             <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex items-center justify-between gap-3 text-xs">
@@ -567,7 +580,9 @@ export const ScannerPage: React.FC = () => {
           {manualMatches.length > 0 && (
             <div className="divide-y divide-line border border-line rounded-xl overflow-hidden">
               {manualMatches.map((s) => {
-                const claimedAt = s.claimedAtByMeal[selectedMealId];
+                const existingClaim = findStudentExistingClaim(s.claimedAtByMeal);
+                const prevMeal = existingClaim ? meals.find((m) => m.id === existingClaim.mealId) : null;
+                const claimedOtherDay = Boolean(existingClaim && existingClaim.mealId !== selectedMealId);
                 return (
                   <div
                     key={s.id}
@@ -578,23 +593,25 @@ export const ScannerPage: React.FC = () => {
                         {s.firstName} {s.lastName}
                       </p>
                       <p className="text-xs text-ink-muted">
-                        {claimedAt
-                          ? `دریافت شده در ساعت ${formatJalaliTime(claimedAt)}`
+                        {existingClaim
+                          ? claimedOtherDay
+                            ? `قبلاً در «${prevMeal?.name || 'روز دیگر'}» ساعت ${formatJalaliTime(existingClaim.claimedAtIso)} دریافت کرده`
+                            : `دریافت شده در ساعت ${formatJalaliTime(existingClaim.claimedAtIso)}`
                           : s.active
-                          ? 'آماده دریافت'
+                          ? 'آماده دریافت (سهمیه یک‌نوبته)'
                           : 'غیرفعال'}
                       </p>
                     </div>
                     <button
                       type="button"
                       onClick={() => processCouponCode(s.couponCode)}
-                      className={`min-h-[40px] px-4 rounded-xl text-xs font-bold cursor-pointer ${
-                        claimedAt
+                      className={`min-h-[40px] px-4 rounded-xl text-xs font-bold cursor-pointer shrink-0 ${
+                        existingClaim
                           ? 'bg-red-600/20 text-red-400 border border-red-500/40'
                           : 'bg-emerald-600 text-white'
                       }`}
                     >
-                      {claimedAt ? 'بررسی وضعیت' : 'ثبت تحویل صبحانه'}
+                      {existingClaim ? 'سهمیه مصرف‌شده' : 'ثبت تحویل صبحانه'}
                     </button>
                   </div>
                 );
@@ -640,12 +657,20 @@ export const ScannerPage: React.FC = () => {
           )}
 
           {overlay.status === 'already_claimed' && overlay.claimedAt && (
-            <p className="mt-3 text-lg bg-black/25 px-4 py-2 rounded-xl tabular-nums">
-              ساعت دریافت قبلی: {formatJalaliTime(overlay.claimedAt)}
-            </p>
+            <div className="mt-3 space-y-1.5 bg-black/25 px-5 py-3 rounded-xl">
+              {overlay.previousMealName && (
+                <p className="text-base font-bold text-amber-200">
+                  وعده دریافت‌شده: {overlay.previousMealName}
+                  {overlay.claimedDateJalali ? ` (${overlay.claimedDateJalali})` : ''}
+                </p>
+              )}
+              <p className="text-lg tabular-nums">
+                ساعت دریافت قبلی: {formatJalaliTime(overlay.claimedAt)}
+              </p>
+            </div>
           )}
 
-          <p className="mt-3 text-sm opacity-90">{overlay.message}</p>
+          <p className="mt-3 text-sm opacity-95 max-w-md leading-relaxed">{overlay.message}</p>
 
           <button
             type="button"

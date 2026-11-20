@@ -397,9 +397,23 @@ app.post('/api/coupon/lookup', (req, res) => {
     active: Boolean(m.active),
   }));
 
-  const claimedMealIds = (
-    db.prepare('SELECT meal_id FROM claims WHERE student_id = ?').all(student.id) as { meal_id: number }[]
-  ).map((c) => c.meal_id);
+  const studentClaims = db
+    .prepare(
+      `SELECT c.meal_id, c.claimed_at, m.name AS meal_name, m.date_jalali
+       FROM claims c
+       LEFT JOIN meals m ON m.id = c.meal_id
+       WHERE c.student_id = ?
+       ORDER BY c.claimed_at ASC`
+    )
+    .all(student.id) as {
+    meal_id: number;
+    claimed_at: string;
+    meal_name: string | null;
+    date_jalali: string | null;
+  }[];
+
+  const claimedMealIds = studentClaims.map((c) => c.meal_id);
+  const firstClaim = studentClaims[0] || null;
 
   res.json({
     studentId: student.id,
@@ -409,6 +423,10 @@ app.post('/api/coupon/lookup', (req, res) => {
     note: student.note,
     activeMeals,
     claimedMealIds,
+    hasClaimedAny: Boolean(firstClaim),
+    claimedMealName: firstClaim?.meal_name ?? null,
+    claimedDateJalali: firstClaim?.date_jalali ?? null,
+    claimedAt: firstClaim?.claimed_at ?? null,
   });
 });
 
@@ -601,7 +619,15 @@ app.get('/api/admin/me', (req: AuthedRequest, res) => {
 function getMealStats(mealId: number) {
   const total = (db.prepare('SELECT COUNT(*) as c FROM students WHERE active = 1').get() as { c: number }).c;
   const claimed = (db.prepare('SELECT COUNT(*) as c FROM claims WHERE meal_id = ?').get(mealId) as { c: number }).c;
-  return { claimed, remaining: Math.max(0, total - claimed), total };
+  const totalClaimedAnyDay = (
+    db.prepare(
+      `SELECT COUNT(DISTINCT c.student_id) as c
+       FROM claims c
+       INNER JOIN students s ON s.id = c.student_id
+       WHERE s.active = 1`
+    ).get() as { c: number }
+  ).c;
+  return { claimed, remaining: Math.max(0, total - totalClaimedAnyDay), total };
 }
 
 app.get('/api/scan/meals', requireRole(['owner', 'food_manager', 'scanner']), (_req, res) => {
@@ -714,33 +740,79 @@ app.post(
     }
 
     const studentName = `${student.first_name} ${student.last_name}`;
-    const existing = db
-      .prepare('SELECT claimed_at FROM claims WHERE student_id = ? AND meal_id = ?')
-      .get(student.id, meal.id) as { claimed_at: string } | undefined;
+    const nowIso = parsed.data.claimedAtIso || new Date().toISOString();
 
-    if (existing) {
+    // بررسی اتمیک قانون یک‌نوبته بودن صبحانه در کل روزهای ثبت‌نام (جلوگیری از دریافت در روز دوم/سوم)
+    const claimTx = db.transaction(() => {
+      const existing = db
+        .prepare(
+          `SELECT c.meal_id, c.claimed_at, m.name AS meal_name, m.date_jalali
+           FROM claims c
+           LEFT JOIN meals m ON m.id = c.meal_id
+           WHERE c.student_id = ?
+           ORDER BY c.claimed_at ASC
+           LIMIT 1`
+        )
+        .get(student.id) as
+        | {
+            meal_id: number;
+            claimed_at: string;
+            meal_name: string | null;
+            date_jalali: string | null;
+          }
+        | undefined;
+
+      if (existing) {
+        const sameMeal = existing.meal_id === meal.id;
+        const prevMealTitle = existing.meal_name || 'وعده قبلی';
+        const prevDateLabel = existing.date_jalali ? ` (${existing.date_jalali})` : '';
+        db.prepare(
+          'INSERT INTO suspicious_attempts (student_id, meal_id, attempt_type, detail, ip) VALUES (?, ?, ?, ?, ?)'
+        ).run(
+          student.id,
+          meal.id,
+          sameMeal ? 'duplicate_claim' : 'cross_day_duplicate_claim',
+          sameMeal
+            ? `تلاش دریافت مجدد در همان روز برای ${studentName}`
+            : `تلاش دریافت در روز دیگر برای ${studentName} (قبلاً در ${prevMealTitle}${prevDateLabel} دریافت کرده)`,
+          ip
+        );
+        return {
+          alreadyClaimed: true as const,
+          sameMeal,
+          existing,
+        };
+      }
+
       db.prepare(
-        'INSERT INTO suspicious_attempts (student_id, meal_id, attempt_type, detail, ip) VALUES (?, ?, ?, ?, ?)'
-      ).run(student.id, meal.id, 'duplicate_claim', `تلاش دریافت مجدد برای ${studentName}`, ip);
+        'INSERT INTO claims (student_id, meal_id, claimed_at, staff_user_id) VALUES (?, ?, ?, ?)'
+      ).run(student.id, meal.id, nowIso, req.adminUser!.id);
+
+      return { alreadyClaimed: false as const };
+    });
+
+    const outcome = claimTx();
+    if (outcome.alreadyClaimed) {
+      const prevName = outcome.existing.meal_name || meal.name;
+      const prevDate = outcome.existing.date_jalali || '';
       res.json({
         status: 'already_claimed',
-        message: 'قبلاً دریافت کرده',
+        message: outcome.sameMeal
+          ? 'این دانشجو قبلاً در همین وعده صبحانه دریافت کرده است.'
+          : `این دانشجو قبلاً در «${prevName}»${prevDate ? ` (${prevDate})` : ''} صبحانه دریافت کرده است. سهمیه هر نوورودی در کل روزهای ثبت‌نام فقط یک نوبت (در همان روز ثبت‌نام) است.`,
         studentName,
-        claimedAt: existing.claimed_at,
-        mealName: meal.name,
+        claimedAt: outcome.existing.claimed_at,
+        mealName: prevName,
+        previousMealName: prevName,
+        claimedDateJalali: prevDate || undefined,
         stats: getMealStats(meal.id),
       });
       return;
     }
 
-    const nowIso = parsed.data.claimedAtIso || new Date().toISOString();
-    db.prepare(
-      'INSERT INTO claims (student_id, meal_id, claimed_at, staff_user_id) VALUES (?, ?, ?, ?)'
-    ).run(student.id, meal.id, nowIso, req.adminUser!.id);
-
     res.json({
       status: 'allowed',
-      message: 'مجاز — صبحانه ثبت شد',
+      message: 'مجاز — سهمیه یک‌نوبته صبحانه ثبت شد',
       studentName,
       claimedAt: nowIso,
       mealName: meal.name,
@@ -770,40 +842,57 @@ app.post(
       return;
     }
 
+    const ip = getClientIp(req);
     let synced = 0;
     let conflicts = 0;
 
-    for (const item of parsed.data.items) {
-      const student = db
-        .prepare('SELECT id, active FROM students WHERE coupon_code = ?')
-        .get(item.couponCode) as { id: number; active: number } | undefined;
-      if (!student || !student.active) continue;
+    // همگام‌سازی اتمیک با رعایت قانون یک نوبت صبحانه در کل روزهای ثبت‌نام
+    const syncTx = db.transaction(() => {
+      for (const item of parsed.data.items) {
+        const student = db
+          .prepare('SELECT id, first_name, last_name, active FROM students WHERE coupon_code = ?')
+          .get(item.couponCode) as
+          | { id: number; first_name: string; last_name: string; active: number }
+          | undefined;
+        if (!student || !student.active) continue;
 
-      const existing = db
-        .prepare('SELECT id, claimed_at FROM claims WHERE student_id = ? AND meal_id = ?')
-        .get(student.id, item.mealId) as { id: number; claimed_at: string } | undefined;
+        const existing = db
+          .prepare('SELECT id, meal_id, claimed_at FROM claims WHERE student_id = ? ORDER BY claimed_at ASC LIMIT 1')
+          .get(student.id) as { id: number; meal_id: number; claimed_at: string } | undefined;
 
-      const decision = resolveOfflineClaimConflict(
-        existing?.claimed_at ?? null,
-        item.scannedAtIso
-      );
-
-      if (!existing) {
-        db.prepare(
-          'INSERT INTO claims (student_id, meal_id, claimed_at, staff_user_id) VALUES (?, ?, ?, ?)'
-        ).run(student.id, item.mealId, item.scannedAtIso, req.adminUser!.id);
-        synced++;
-      } else if (decision.accepted) {
-        db.prepare('UPDATE claims SET claimed_at = ? WHERE id = ?').run(
-          item.scannedAtIso,
-          existing.id
+        const decision = resolveOfflineClaimConflict(
+          existing?.claimed_at ?? null,
+          item.scannedAtIso
         );
-        synced++;
-      } else {
-        conflicts++;
-      }
-    }
 
+        if (!existing) {
+          db.prepare(
+            'INSERT INTO claims (student_id, meal_id, claimed_at, staff_user_id) VALUES (?, ?, ?, ?)'
+          ).run(student.id, item.mealId, item.scannedAtIso, req.adminUser!.id);
+          synced++;
+        } else if (decision.accepted) {
+          db.prepare('UPDATE claims SET meal_id = ?, claimed_at = ? WHERE id = ?').run(
+            item.mealId,
+            item.scannedAtIso,
+            existing.id
+          );
+          synced++;
+        } else {
+          conflicts++;
+          db.prepare(
+            'INSERT INTO suspicious_attempts (student_id, meal_id, attempt_type, detail, ip) VALUES (?, ?, ?, ?, ?)'
+          ).run(
+            student.id,
+            item.mealId,
+            existing.meal_id === item.mealId ? 'offline_duplicate_claim' : 'offline_cross_day_duplicate',
+            `تضاد همگام‌سازی آفلاین برای ${student.first_name} ${student.last_name}`,
+            ip
+          );
+        }
+      }
+    });
+
+    syncTx();
     res.json({ ok: true, synced, conflicts });
   }
 );
@@ -1098,17 +1187,19 @@ app.patch(
 
 // گزارش‌های صبحانه و خروجی اکسل (CSV با UTF-8 BOM)
 app.get('/api/admin/reports/breakfast', requireRole(['owner', 'food_manager']), (_req, res) => {
+  // فهرست دانشجویانی که هنوز در هیچ‌یک از روزهای ثبت‌نام صبحانه دریافت نکرده‌اند
+  const neverClaimed = db
+    .prepare(
+      `SELECT s.id, s.first_name, s.last_name, s.note
+       FROM students s
+       WHERE s.active = 1
+         AND NOT EXISTS (SELECT 1 FROM claims c WHERE c.student_id = s.id)
+       ORDER BY s.last_name ASC`
+    )
+    .all() as { id: number; first_name: string; last_name: string; note: string }[];
+
   const meals = (db.prepare('SELECT * FROM meals ORDER BY id ASC').all() as Record<string, unknown>[]).map((m) => {
     const stats = getMealStats(m.id as number);
-    const unclaimed = db
-      .prepare(
-        `SELECT s.id, s.first_name, s.last_name, s.note
-         FROM students s
-         WHERE s.active = 1
-           AND NOT EXISTS (SELECT 1 FROM claims c WHERE c.student_id = s.id AND c.meal_id = ?)
-         ORDER BY s.last_name ASC`
-      )
-      .all(m.id) as { id: number; first_name: string; last_name: string; note: string }[];
     return {
       id: m.id as number,
       name: m.name as string,
@@ -1116,7 +1207,7 @@ app.get('/api/admin/reports/breakfast', requireRole(['owner', 'food_manager']), 
       claimed: stats.claimed,
       remaining: stats.remaining,
       total: stats.total,
-      unclaimed: unclaimed.map((u) => ({
+      unclaimed: neverClaimed.map((u) => ({
         id: u.id,
         fullName: `${u.first_name} ${u.last_name}`,
         note: u.note,
@@ -1135,20 +1226,32 @@ app.get('/api/admin/reports/breakfast.csv', requireRole(['owner', 'food_manager'
   const mealId = Number(req.query.mealId || 1);
   const rows = db
     .prepare(
-      `SELECT s.first_name, s.last_name, s.note, c.claimed_at
+      `SELECT s.first_name, s.last_name, s.note, c.meal_id, c.claimed_at, m.name AS meal_name
        FROM students s
-       LEFT JOIN claims c ON c.student_id = s.id AND c.meal_id = ?
+       LEFT JOIN claims c ON c.student_id = s.id
+       LEFT JOIN meals m ON m.id = c.meal_id
        WHERE s.active = 1
        ORDER BY c.claimed_at DESC, s.last_name ASC`
     )
-    .all(mealId) as { first_name: string; last_name: string; note: string; claimed_at: string | null }[];
+    .all() as {
+    first_name: string;
+    last_name: string;
+    note: string;
+    meal_id: number | null;
+    claimed_at: string | null;
+    meal_name: string | null;
+  }[];
 
-  const header = 'نام,نام‌خانوادگی,توضیحات,وضعیت دریافت,زمان ثبت\n';
+  const header = 'نام,نام‌خانوادگی,توضیحات,وضعیت دریافت,وعده دریافتی,زمان ثبت\n';
   const body = rows
-    .map(
-      (r) =>
-        `"${r.first_name}","${r.last_name}","${r.note}","${r.claimed_at ? 'دریافت کرده' : 'دریافت نکرده'}","${r.claimed_at || '-'}"`
-    )
+    .map((r) => {
+      const statusText = !r.claimed_at
+        ? 'دریافت نکرده'
+        : r.meal_id === mealId
+        ? 'دریافت کرده در همین وعده'
+        : 'دریافت کرده در روز دیگر';
+      return `"${r.first_name}","${r.last_name}","${r.note}","${statusText}","${r.meal_name || '-'}","${r.claimed_at || '-'}"`;
+    })
     .join('\n');
 
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');

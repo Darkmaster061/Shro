@@ -34,7 +34,7 @@ interface PortalContextValue {
 const FALLBACK_SETTINGS: SiteSettings = {
   siteTitle: 'پرتال هوشمند نوورودی‌ها',
   universityName: 'مجتمع آموزش عالی گناباد',
-  basijLogoUrl: '',
+  basijLogoUrl: '/assets/basij-logo-official.png',
   heyatLogoUrl: '',
   heroImageUrl: '',
   accentColor: '#deb154',
@@ -45,9 +45,9 @@ const FALLBACK_SETTINGS: SiteSettings = {
   urgentBannerText:
     'اطلاعیه رسمی ثبت‌نام حضوری ۱۴۰۵ منتشر شد: یکشنبه ۱ تا سه‌شنبه ۳ آذرماه (ساعت ۸ تا ۱۴) بر اساس رشته — روز مراجعه رشته‌ات را ببین!',
   urgentBannerLink: '/guide',
-  basijTelegramUrl: 'https://t.me/gonabad_basij_placeholder',
-  basijEitaaUrl: 'https://eitaa.com/gonabad_basij_placeholder',
-  basijBaleUrl: 'https://ble.ir/gonabad_basij_placeholder',
+  basijTelegramUrl: 'https://t.me/BasijUOG',
+  basijEitaaUrl: 'https://eitaa.com/basijuog',
+  basijBaleUrl: '',
   basijRubikaUrl: '',
   heyatTelegramUrl: 'https://t.me/mohebbanolhosein_uog',
   heyatEitaaUrl: '',
@@ -56,7 +56,7 @@ const FALLBACK_SETTINGS: SiteSettings = {
   contactPhones:
     'تلفن دانشگاه: ۰۵۱۵۷۲۰۲۱۲۲ | تماس ضروری پذیرفته‌شدگان: ۰۹۰۲۴۹۷۴۳۱۱ و ۰۹۱۵۸۹۴۴۲۰۸ | خوابگاه خواهران: ۰۵۱۵۷۲۰۲۱۴۴ | خوابگاه برادران: ۰۵۱۵۷۲۰۲۱۴۵ | تغذیه: ۰۵۱۵۷۲۰۲۱۴۳',
   responseHours: 'روزهای ثبت‌نام حضوری (۱ تا ۳ آذر ۱۴۰۵): ساعت ۰۸:۰۰ تا ۱۴:۰۰',
-  basijOfficeLocation: 'مجتمع آموزش عالی گناباد (انتهای بلوار شهدای گمنام)، دفتر بسیج دانشجویی [اتاق دقیق: نیاز به تکمیل]',
+  basijOfficeLocation: 'مجتمع آموزش عالی گناباد (انتهای بلوار شهدای گمنام)، پایگاه بسیج برادران (سالن مرکزی) و پایگاه بسیج خواهران (طبقه اول بال شرقی)',
   heyatOfficeLocation: 'مسجد حضرت فاطمه زهرا (س) دانشگاه گناباد — هیئت دانشجویی محبان‌الحسین (ع)',
   basijIntroText:
     'بسیج دانشجویی مجتمع آموزش عالی گناباد با هدف همراهی علمی، فرهنگی، مهارتی و جهادی با دانشجویان، از نخستین روز ورود شما در کنارتان است.',

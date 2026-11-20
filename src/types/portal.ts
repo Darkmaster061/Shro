@@ -162,6 +162,10 @@ export interface CouponLookupResult {
   note: string;
   activeMeals: MealItem[];
   claimedMealIds: number[];
+  hasClaimedAny?: boolean;
+  claimedMealName?: string | null;
+  claimedDateJalali?: string | null;
+  claimedAt?: string | null;
 }
 
 export interface ScanClaimResponse {
@@ -170,6 +174,8 @@ export interface ScanClaimResponse {
   studentName?: string;
   claimedAt?: string;
   mealName?: string;
+  previousMealName?: string;
+  claimedDateJalali?: string;
   stats?: {
     claimed: number;
     remaining: number;

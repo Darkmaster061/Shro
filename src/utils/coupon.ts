@@ -100,8 +100,8 @@ export function parseStudentsCsv(csvText: string): {
 }
 
 /**
- * سیاست حل تضاد همگام‌سازی آفلاین اسکنر:
- * اولین ثبت معتبر است و ثبت بعدی رد می‌شود.
+ * سیاست حل تضاد همگام‌سازی آفلاین اسکنر (در کل روزهای ثبت‌نام، نه فقط یک روز):
+ * اولین ثبت معتبر است و هر ثبت بعدی در همان روز یا روزهای دیگر رد می‌شود.
  */
 export function resolveOfflineClaimConflict(
   existingClaimIso: string | null,
@@ -116,4 +116,61 @@ export function resolveOfflineClaimConflict(
     return { accepted: true, winnerIso: incomingClaimIso };
   }
   return { accepted: false, winnerIso: existingClaimIso };
+}
+
+/**
+ * یافتن اولین دریافت ثبت‌شده برای دانشجو در بین تمام وعده‌ها و روزهای ثبت‌نام
+ */
+export function findStudentExistingClaim(
+  claimedAtByMeal: Record<number, string> | undefined
+): { mealId: number; claimedAtIso: string } | null {
+  if (!claimedAtByMeal) return null;
+  const entries = Object.entries(claimedAtByMeal)
+    .map(([mealIdStr, claimedAtIso]) => ({
+      mealId: Number(mealIdStr),
+      claimedAtIso,
+      ts: new Date(claimedAtIso).getTime(),
+    }))
+    .filter((e) => Number.isFinite(e.mealId) && Boolean(e.claimedAtIso));
+
+  if (entries.length === 0) return null;
+  entries.sort((a, b) => {
+    const aTs = Number.isNaN(a.ts) ? Number.MAX_SAFE_INTEGER : a.ts;
+    const bTs = Number.isNaN(b.ts) ? Number.MAX_SAFE_INTEGER : b.ts;
+    return aTs - bTs;
+  });
+  return { mealId: entries[0].mealId, claimedAtIso: entries[0].claimedAtIso };
+}
+
+/**
+ * بررسی مجاز بودن دریافت صبحانه با قانون قطعی:
+ * هر دانشجو در کل روزهای ثبت‌نام فقط یک نوبت (در روز ثبت‌نام خود) مجاز به دریافت صبحانه است.
+ */
+export function checkSingleBreakfastEligibility(
+  claimedAtByMeal: Record<number, string> | undefined,
+  targetMealId: number
+): {
+  allowed: boolean;
+  reason: 'eligible' | 'already_claimed_same_meal' | 'already_claimed_other_day';
+  existingMealId?: number;
+  existingClaimedAtIso?: string;
+} {
+  const existing = findStudentExistingClaim(claimedAtByMeal);
+  if (!existing) {
+    return { allowed: true, reason: 'eligible' };
+  }
+  if (existing.mealId === targetMealId) {
+    return {
+      allowed: false,
+      reason: 'already_claimed_same_meal',
+      existingMealId: existing.mealId,
+      existingClaimedAtIso: existing.claimedAtIso,
+    };
+  }
+  return {
+    allowed: false,
+    reason: 'already_claimed_other_day',
+    existingMealId: existing.mealId,
+    existingClaimedAtIso: existing.claimedAtIso,
+  };
 }

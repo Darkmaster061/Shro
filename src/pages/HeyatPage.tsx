@@ -182,7 +182,7 @@ export const HeyatPage: React.FC = () => {
 
     ctx.fillStyle = '#a6bab4';
     ctx.font = '18px Vazirmatn, sans-serif';
-    ctx.fillText('این کارت اختصاصی بوده و برای هر وعده تنها یک بار قابل استفاده است.', 360, 815);
+    ctx.fillText('سهمیه یک‌نوبته: این کارت فقط در روز ثبت‌نام شما (یک بار در کل روزها) معتبر است.', 360, 815);
     ctx.fillText(HEYAT_OFFICIAL_INFO.officialName, 360, 860);
 
     const link = document.createElement('a');
@@ -383,8 +383,11 @@ export const HeyatPage: React.FC = () => {
               <h2 id="coupon-heading" className="text-xl sm:text-2xl font-bold text-ink">
                 دریافت کارت دیجیتال ژتون صبحانه
               </h2>
-              <p className="mt-1.5 text-sm text-ink-muted">
+              <p className="mt-1.5 text-sm text-ink-muted leading-relaxed">
                 نام، نام‌خانوادگی و تاریخ تولد شمسی خود را وارد کن تا کارت QR اختصاصی تو نمایش داده شود. پس از اولین دریافت، کارت به‌صورت آفلاین روی گوشی ذخیره می‌ماند.
+              </p>
+              <p className="mt-2 text-xs text-gold font-semibold bg-gold-soft/45 border border-gold/25 rounded-xl px-3 py-2">
+                نکته مهم: سهمیه صبحانه هر نوورودی در کل روزهای ثبت‌نام فقط یک نوبت و صرفاً در روز ثبت‌نام خودتان است (در صورت دریافت در روز اول، در روزهای بعد امکان دریافت مجدد وجود ندارد).
               </p>
             </div>
 
@@ -523,13 +526,25 @@ export const HeyatPage: React.FC = () => {
                   </span>
                 </div>
 
-                {/* وضعیت وعده‌های فعال */}
+                {/* وضعیت سهمیه یک‌نوبته و وعده‌های فعال */}
+                {(coupon.hasClaimedAny || coupon.claimedMealIds.length > 0) && (
+                  <div className="rounded-xl border border-amber-400/45 bg-amber-500/15 px-3.5 py-2.5 text-xs text-amber-200 leading-relaxed">
+                    <strong>سهمیه صبحانه شما دریافت شده است</strong>
+                    {coupon.claimedMealName ? ` (${coupon.claimedMealName}` : ''}
+                    {coupon.claimedDateJalali ? ` · ${coupon.claimedDateJalali})` : coupon.claimedMealName ? ')' : ''}
+                    {' '}— سهمیه هر نوورودی در کل روزهای ثبت‌نام فقط یک نوبت است.
+                  </div>
+                )}
+
                 {coupon.activeMeals.length > 0 && (
                   <div className="space-y-2">
-                    <p className="text-xs text-[#deb154] font-semibold">وعده‌های صبحانه فعال:</p>
+                    <p className="text-xs text-[#deb154] font-semibold">
+                      زمان‌بندی وعده‌های صبحانه (سهمیه یک‌نوبته در روز ثبت‌نام):
+                    </p>
                     <div className="space-y-1.5">
                       {coupon.activeMeals.map((m) => {
-                        const used = coupon.claimedMealIds.includes(m.id);
+                        const usedThisMeal = coupon.claimedMealIds.includes(m.id);
+                        const usedAnyDay = Boolean(coupon.hasClaimedAny || coupon.claimedMealIds.length > 0);
                         return (
                           <div
                             key={m.id}
@@ -543,11 +558,19 @@ export const HeyatPage: React.FC = () => {
                             </div>
                             <span
                               className={`font-semibold inline-flex items-center gap-1 ${
-                                used ? 'text-amber-300' : 'text-emerald-300'
+                                usedThisMeal
+                                  ? 'text-amber-300'
+                                  : usedAnyDay
+                                  ? 'text-white/55'
+                                  : 'text-emerald-300'
                               }`}
                             >
                               <CheckCircle2 className="w-3.5 h-3.5" />
-                              {used ? 'دریافت شده' : 'آماده دریافت'}
+                              {usedThisMeal
+                                ? 'دریافت شده'
+                                : usedAnyDay
+                                ? 'سهمیه مصرف شده'
+                                : 'قابل استفاده در روز ثبت‌نام'}
                             </span>
                           </div>
                         );

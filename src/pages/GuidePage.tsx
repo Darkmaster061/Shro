@@ -42,6 +42,7 @@ import {
 } from '../data/orientation';
 import { CampusMapSvg } from '../components/CampusMapSvg';
 import { normalizePersian, searchFaqs, toPersianDigits } from '../utils/persian';
+import { resolveActiveOnsiteStep } from '../utils/videoSteps';
 import type { FaqItem } from '../types/portal';
 
 const FAQ_CATEGORIES = ['همه', 'ثبت‌نام', 'خوابگاه', 'تغذیه و صبحانه', 'آموزش', 'بسیج و کانون‌ها', 'حمل‌ونقل و شهر'];
@@ -62,9 +63,44 @@ export const GuidePage: React.FC = () => {
   const [selectedMajor, setSelectedMajor] = useState<string | null>(null);
   const [docsFilter, setDocsFilter] = useState<'essential' | 'all'>('all');
 
-  // ویدیوی راهنمای ثبت‌نام حضوری (گام ۰ بسیج + گام ۱ تا ۱۲)
+  // ویدیوی راهنمای ثبت‌نام حضوری (گام ۰ بسیج + گام ۱ تا ۱۲) با همگام‌سازی خودکار گام فعال با زمان پخش
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const stepsListRef = useRef<HTMLDivElement | null>(null);
+  const stepItemRefs = useRef<Record<number, HTMLButtonElement | null>>({});
   const [activeOnsiteStep, setActiveOnsiteStep] = useState<number>(0);
+  const [isVideoPlaying, setIsVideoPlaying] = useState<boolean>(false);
+
+  const activeOnsiteStepObj = useMemo(
+    () =>
+      REGISTRATION_ONSITE_STEPS.find((s) => s.stepNumber === activeOnsiteStep) ??
+      REGISTRATION_ONSITE_STEPS[0],
+    [activeOnsiteStep]
+  );
+
+  const syncOnsiteStepFromVideo = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const nextStep = resolveActiveOnsiteStep(video.currentTime, REGISTRATION_ONSITE_STEPS);
+    setActiveOnsiteStep((prev) => (prev === nextStep ? prev : nextStep));
+  };
+
+  // اسکرول نرم و محدود به کادر فهرست گام‌ها در دسکتاپ تا گام طلایی همواره کنار ویدیو دیده شود (بدون پرش صفحه موبایل)
+  useEffect(() => {
+    const container = stepsListRef.current;
+    const activeBtn = stepItemRefs.current[activeOnsiteStep];
+    if (!container || !activeBtn) return;
+    if (container.scrollHeight <= container.clientHeight + 12) return;
+
+    const targetTop =
+      activeBtn.offsetTop - container.offsetTop - container.clientHeight / 2 + activeBtn.clientHeight / 2;
+    const prefersReduced =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    container.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior: prefersReduced ? 'auto' : 'smooth',
+    });
+  }, [activeOnsiteStep]);
 
   const handleSelectOnsiteStep = (stepNumber: number, videoSec: number | null) => {
     setActiveOnsiteStep(stepNumber);
@@ -440,7 +476,7 @@ export const GuidePage: React.FC = () => {
               ۰۱.۵ ویدیوی راهنمای ثبت‌نام و مسیر کامل گام ۰ تا گام ۱۲
             </h2>
             <p className="text-xs sm:text-sm text-ink-muted max-w-2xl">
-              روی هر گام از فهرست کنار ویدیو کلیک کن تا توضیحاتش را ببینی و مستقیم به همان ثانیه از ویدیوی راهنمای دانشگاه بپری.
+              هنگام پخش یا جابه‌جایی زمان ویدیو، گام متناظر به‌صورت خودکار <strong className="text-gold">طلایی</strong> می‌شود؛ همچنین با کلیک روی هر گام می‌توانی مستقیم به همان ثانیه از ویدیو بپری.
             </p>
           </div>
           <a
@@ -476,44 +512,85 @@ export const GuidePage: React.FC = () => {
                 controls
                 playsInline
                 preload="metadata"
+                onTimeUpdate={syncOnsiteStepFromVideo}
+                onSeeked={syncOnsiteStepFromVideo}
+                onPlay={() => {
+                  setIsVideoPlaying(true);
+                  syncOnsiteStepFromVideo();
+                }}
+                onPause={() => setIsVideoPlaying(false)}
+                onEnded={() => setIsVideoPlaying(false)}
                 aria-label={REGISTRATION_GUIDE_VIDEO.title}
                 className="w-full aspect-[9/16] object-contain bg-black block"
               >
                 مرورگر شما از پخش ویدیوی HTML5 پشتیبانی نمی‌کند.
               </video>
             </div>
+
+            {/* نوار نمایش زنده گام فعلی ویدیو زیر پخش‌کننده */}
+            <div
+              data-testid="active-video-step-banner"
+              className={`max-w-[340px] mx-auto rounded-xl border px-3.5 py-2.5 text-xs transition-colors flex items-center gap-2.5 ${
+                activeOnsiteStepObj.isNewThisYear
+                  ? 'border-cyan-400/50 bg-cyan-500/10 text-ink'
+                  : 'border-gold bg-gold-soft/85 text-ink shadow-md shadow-gold/15'
+              }`}
+            >
+              <span
+                className={`px-2 py-0.5 rounded-md font-extrabold shrink-0 ${
+                  activeOnsiteStepObj.isNewThisYear
+                    ? 'bg-cyan-400 text-[#051815]'
+                    : 'bg-gold text-[#071714]'
+                }`}
+              >
+                {activeOnsiteStepObj.stepLabel}
+              </span>
+              <span className="truncate font-semibold">
+                {activeOnsiteStepObj.title}
+              </span>
+            </div>
+
             <p className="text-[11px] text-ink-muted text-center leading-5 px-2">
               {REGISTRATION_GUIDE_VIDEO.boothsNote}
             </p>
           </div>
 
           {/* ستون نقشه گام ۰ تا گام ۱۲ */}
-          <div className="lg:col-span-8 space-y-2.5">
+          <div
+            ref={stepsListRef}
+            data-testid="onsite-steps-list"
+            className="lg:col-span-8 space-y-2.5 lg:max-h-[660px] lg:overflow-y-auto lg:pl-1.5"
+          >
             {REGISTRATION_ONSITE_STEPS.map((step) => {
               const isSelected = activeOnsiteStep === step.stepNumber;
               const isStepZero = step.isNewThisYear;
               return (
                 <button
                   key={step.stepNumber}
+                  ref={(el) => {
+                    stepItemRefs.current[step.stepNumber] = el;
+                  }}
                   type="button"
+                  data-testid={`onsite-step-${step.stepNumber}`}
+                  data-active={isSelected ? 'true' : 'false'}
                   onClick={() => handleSelectOnsiteStep(step.stepNumber, step.videoSec)}
                   aria-pressed={isSelected}
-                  className={`w-full text-right rounded-2xl border p-4 transition-all cursor-pointer flex items-start gap-3.5 ${
+                  className={`w-full text-right rounded-2xl border p-4 transition-all duration-300 cursor-pointer flex items-start gap-3.5 ${
                     isStepZero
                       ? isSelected
                         ? 'border-cyan-400 bg-cyan-500/15 shadow-md shadow-cyan-500/10'
                         : 'border-cyan-400/50 bg-cyan-500/8 hover:border-cyan-300'
                       : isSelected
-                        ? 'border-gold bg-gold-soft/70'
+                        ? 'border-gold bg-gradient-to-l from-gold/25 via-gold-soft/90 to-gold/10 shadow-[0_0_24px_rgba(222,177,84,0.28)] ring-1 ring-gold/65'
                         : 'border-line bg-canvas hover:border-gold/45'
                   }`}
                 >
                   <span
-                    className={`min-w-[54px] px-2 py-1.5 rounded-xl text-xs font-extrabold text-center shrink-0 tabular-nums ${
+                    className={`min-w-[54px] px-2 py-1.5 rounded-xl text-xs font-extrabold text-center shrink-0 tabular-nums transition-all ${
                       isStepZero
                         ? 'bg-cyan-400 text-[#051815]'
                         : isSelected
-                          ? 'bg-gold text-[#071714]'
+                          ? 'bg-gold text-[#071714] shadow-md shadow-gold/30'
                           : 'bg-surface border border-line text-gold'
                     }`}
                   >
@@ -522,23 +599,46 @@ export const GuidePage: React.FC = () => {
 
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <h3 className="text-sm sm:text-base font-bold text-ink leading-snug">
+                      <h3
+                        className={`text-sm sm:text-base font-bold leading-snug transition-colors ${
+                          !isStepZero && isSelected ? 'text-gold' : 'text-ink'
+                        }`}
+                      >
                         {step.title}
                       </h3>
                       <div className="flex items-center gap-1.5 shrink-0">
+                        {!isStepZero && isSelected && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gold text-[#071714] text-[10px] font-extrabold">
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full bg-[#071714] ${
+                                isVideoPlaying ? 'animate-pulse' : ''
+                              }`}
+                              aria-hidden="true"
+                            />
+                            <span>{isVideoPlaying ? 'در حال پخش' : 'گام فعلی ویدیو'}</span>
+                          </span>
+                        )}
                         {step.badge && (
                           <span
                             className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
                               isStepZero
                                 ? 'bg-cyan-400/20 text-cyan-200 border border-cyan-400/40'
-                                : 'bg-surface border border-line text-gold'
+                                : isSelected
+                                  ? 'bg-gold/20 border border-gold/60 text-gold'
+                                  : 'bg-surface border border-line text-gold'
                             }`}
                           >
                             {step.badge}
                           </span>
                         )}
                         {step.videoTimeLabel && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface border border-line text-[11px] font-semibold text-ink-muted tabular-nums">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-semibold tabular-nums transition-colors ${
+                              isSelected
+                                ? 'bg-gold/15 border-gold text-gold'
+                                : 'bg-surface border-line text-ink-muted'
+                            }`}
+                          >
                             <PlayCircle className="w-3 h-3 text-gold" />
                             <span>{step.videoTimeLabel}</span>
                           </span>
@@ -546,7 +646,11 @@ export const GuidePage: React.FC = () => {
                       </div>
                     </div>
 
-                    <p className="text-xs sm:text-sm text-ink-muted leading-6">
+                    <p
+                      className={`text-xs sm:text-sm leading-6 transition-colors ${
+                        !isStepZero && isSelected ? 'text-ink' : 'text-ink-muted'
+                      }`}
+                    >
                       {step.description}
                     </p>
 
@@ -555,7 +659,11 @@ export const GuidePage: React.FC = () => {
                         {step.subSteps.map((sub) => (
                           <span
                             key={sub}
-                            className="px-2.5 py-1 rounded-lg border border-line bg-surface text-[11px] font-semibold text-ink"
+                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-semibold ${
+                              isSelected
+                                ? 'border-gold/50 bg-gold/15 text-ink'
+                                : 'border-line bg-surface text-ink'
+                            }`}
                           >
                             {sub}
                           </span>

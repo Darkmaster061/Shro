@@ -268,7 +268,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <div className="pt-2 flex flex-wrap gap-3 text-xs">
                 {settings.basijTelegramUrl && (
                   <a href={settings.basijTelegramUrl} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">
-                    تلگرام بسیج
+                    تلگرام بسیج (@BasijUOG)
                   </a>
                 )}
                 {settings.basijEitaaUrl && (
@@ -276,6 +276,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                     ایتا بسیج
                   </a>
                 )}
+                <a href="https://zil.ink/basijuog" target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">
+                  پروفایل بسیج (zil.ink)
+                </a>
                 {settings.heyatTelegramUrl && (
                   <a href={settings.heyatTelegramUrl} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">
                     تلگرام هیئت
@@ -291,7 +294,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
 
           <div className="mt-8 pt-5 border-t border-line flex flex-wrap items-center justify-between gap-4 text-xs text-ink-muted">
-            <p>بسیج دانشجویی و هیئت مجتمع آموزش عالی گناباد</p>
+            <p>بسیج دانشجویی (حوزه شهید شوریده) و هیئت محبان‌الحسین (ع) مجتمع آموزش عالی گناباد</p>
             <div className="flex items-center gap-4">
               <Link to="/scanner" className="hover:text-ink inline-flex items-center gap-1">
                 <QrCode className="w-3.5 h-3.5" />
@@ -319,10 +322,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </Link>
       )}
 
-      {/* نوار ناوبری پایین موبایل (ارتفاع ۵۶px، همراه با هدر ۵۶px کمتر از ۱۵٪ صفحه) */}
+      {/* نوار ناوبری پایین موبایل با فضای عمودی کافی برای خوانایی کامل حروف فارسی */}
       <nav
         aria-label="ناوبری سریع موبایل"
-        className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-30 h-14 border-t border-line bg-surface/95 backdrop-blur-md grid grid-cols-5 items-center"
+        className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-30 min-h-[62px] py-1.5 border-t border-line bg-surface/95 backdrop-blur-md grid grid-cols-5 items-center"
       >
         {[
           { to: '/', label: 'خانه', icon: Home },
@@ -336,12 +339,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <Link
               key={to}
               to={to}
-              className={`flex flex-col items-center justify-center h-full text-[11px] font-medium transition-colors ${
+              className={`flex flex-col items-center justify-center py-0.5 text-[11px] leading-tight font-medium transition-colors ${
                 active ? 'text-gold font-bold' : 'text-ink-muted'
               }`}
             >
-              <Icon className="w-5 h-5" />
-              <span className="mt-0.5">{label}</span>
+              <Icon className="w-[19px] h-[19px] shrink-0" />
+              <span className="mt-1">{label}</span>
             </Link>
           );
         })}

@@ -21,7 +21,7 @@ db.pragma('foreign_keys = ON');
 export const DEFAULT_SETTINGS: SiteSettings = {
   siteTitle: 'پرتال هوشمند نوورودی‌ها',
   universityName: 'مجتمع آموزش عالی گناباد',
-  basijLogoUrl: '',
+  basijLogoUrl: '/assets/basij-logo-official.png',
   heyatLogoUrl: '',
   heroImageUrl: '',
   accentColor: '#deb154',
@@ -32,9 +32,9 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   urgentBannerText:
     'اطلاعیه رسمی ثبت‌نام حضوری ۱۴۰۵ منتشر شد: یکشنبه ۱ تا سه‌شنبه ۳ آذرماه (ساعت ۸ تا ۱۴) بر اساس رشته — روز مراجعه رشته‌ات را ببین!',
   urgentBannerLink: '/guide',
-  basijTelegramUrl: 'https://t.me/gonabad_basij_placeholder',
-  basijEitaaUrl: 'https://eitaa.com/gonabad_basij_placeholder',
-  basijBaleUrl: 'https://ble.ir/gonabad_basij_placeholder',
+  basijTelegramUrl: 'https://t.me/BasijUOG',
+  basijEitaaUrl: 'https://eitaa.com/basijuog',
+  basijBaleUrl: '',
   basijRubikaUrl: '',
   heyatTelegramUrl: 'https://t.me/mohebbanolhosein_uog',
   heyatEitaaUrl: '',
@@ -43,10 +43,10 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   contactPhones:
     'تلفن دانشگاه: ۰۵۱۵۷۲۰۲۱۲۲ | تماس ضروری پذیرفته‌شدگان: ۰۹۰۲۴۹۷۴۳۱۱ و ۰۹۱۵۸۹۴۴۲۰۸ | خوابگاه خواهران: ۰۵۱۵۷۲۰۲۱۴۴ | خوابگاه برادران: ۰۵۱۵۷۲۰۲۱۴۵ | تغذیه: ۰۵۱۵۷۲۰۲۱۴۳',
   responseHours: 'روزهای ثبت‌نام حضوری (۱ تا ۳ آذر ۱۴۰۵): ساعت ۰۸:۰۰ تا ۱۴:۰۰',
-  basijOfficeLocation: 'مجتمع آموزش عالی گناباد (انتهای بلوار شهدای گمنام)، دفتر بسیج دانشجویی [اتاق دقیق: نیاز به تکمیل]',
+  basijOfficeLocation: 'مجتمع آموزش عالی گناباد (انتهای بلوار شهدای گمنام)، پایگاه بسیج دانشجویی (حوزه شهید شوریده)',
   heyatOfficeLocation: 'مسجد حضرت فاطمه زهرا (س) دانشگاه گناباد — هیئت دانشجویی محبان‌الحسین (ع)',
   basijIntroText:
-    'بسیج دانشجویی مجتمع آموزش عالی گناباد با هدف همراهی علمی، فرهنگی، مهارتی و جهادی با دانشجویان، از نخستین روز ورود شما در کنارتان است. [تاریخچه و آمار واقعی: نیاز به تکمیل]',
+    'بسیج دانشجویی دانشگاه گناباد (حوزه شهید شوریده) با هدف همراهی علمی، فرهنگی، مهارتی و جهادی با دانشجویان، از نخستین روز ورود شما در کنارتان است.',
   heyatIntroText:
     'هیئت دانشجویی محبان‌الحسین (ع) دانشگاه گناباد، محفل صمیمی همدلی، معنویت و برنامه‌های هفتگی دانشجویان در مسجد حضرت فاطمه زهرا (س) و جوار مزار شهدای گمنام است. هر هفته یکشنبه‌ها (عصرهای عاشقی) و سه‌شنبه‌ها (مجالس روضه هفتگی) و در ایام ثبت‌نام با ایستگاه صبحانه میزبان شما نوورودی‌های عزیز هستیم.',
   cadresPdfUrl: OFFICIAL_BASIJ_PDF_URL,
@@ -996,6 +996,79 @@ function seedInitialData() {
       );
     });
     migrateDormLocations();
+  }
+
+  // قانون قطعی: هر دانشجو در کل روزهای ثبت‌نام فقط یک نوبت (در روز ثبت‌نام خود) مجاز به دریافت صبحانه است
+  const oneBreakfastMigRow = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get('__migration_claims_one_per_student_1405') as { value: string } | undefined;
+
+  if (!oneBreakfastMigRow) {
+    const migrateSingleClaim = db.transaction(() => {
+      // حذف دریافت‌های تکراری احتمالی قدیمی و حفظ فقط اولین ثبت هر دانشجو
+      db.exec(`
+        DELETE FROM claims
+        WHERE id NOT IN (
+          SELECT MIN(id) FROM claims GROUP BY student_id
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_claims_one_per_student ON claims(student_id);
+      `);
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+        '__migration_claims_one_per_student_1405',
+        JSON.stringify('1')
+      );
+    });
+    migrateSingleClaim();
+  }
+
+  // ارتقای یک‌باره و امن اطلاعات رسمی کانال و لوگوی بسیج دانشجویی دانشگاه گناباد (حوزه شهید شوریده)
+  const basijOfficialMigRow = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get('__migration_basij_official_1405') as { value: string } | undefined;
+
+  if (!basijOfficialMigRow) {
+    const migrateBasijOfficial = db.transaction(() => {
+      const readSetting = (key: string): string => {
+        const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
+          | { value: string }
+          | undefined;
+        if (!row) return '';
+        try {
+          const parsed = JSON.parse(row.value);
+          return typeof parsed === 'string' ? parsed : '';
+        } catch {
+          return row.value;
+        }
+      };
+      const setSetting = db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)');
+
+      if (!readSetting('basijLogoUrl')) {
+        setSetting.run('basijLogoUrl', JSON.stringify('/assets/basij-logo-official.png'));
+      }
+      const curTg = readSetting('basijTelegramUrl');
+      if (!curTg || curTg.includes('placeholder')) {
+        setSetting.run('basijTelegramUrl', JSON.stringify('https://t.me/BasijUOG'));
+      }
+      const curEitaa = readSetting('basijEitaaUrl');
+      if (!curEitaa || curEitaa.includes('placeholder')) {
+        setSetting.run('basijEitaaUrl', JSON.stringify('https://eitaa.com/basijuog'));
+      }
+      const curBale = readSetting('basijBaleUrl');
+      if (curBale.includes('placeholder')) {
+        setSetting.run('basijBaleUrl', JSON.stringify(''));
+      }
+      const curOffice = readSetting('basijOfficeLocation');
+      if (!curOffice || curOffice.includes('نیاز به تکمیل')) {
+        setSetting.run('basijOfficeLocation', JSON.stringify(DEFAULT_SETTINGS.basijOfficeLocation));
+      }
+      const curIntro = readSetting('basijIntroText');
+      if (!curIntro || curIntro.includes('نیاز به تکمیل')) {
+        setSetting.run('basijIntroText', JSON.stringify(DEFAULT_SETTINGS.basijIntroText));
+      }
+
+      setSetting.run('__migration_basij_official_1405', JSON.stringify('1'));
+    });
+    migrateBasijOfficial();
   }
 }
 

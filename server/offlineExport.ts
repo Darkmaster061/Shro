@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import type Database from 'better-sqlite3';
 import {
+  BASIJ_OFFICIAL_INFO,
   BASIJ_TIMELINE,
   CADRE_QUIZ_QUESTIONS,
   CAMPUS_MAP_NODES,
@@ -318,6 +319,7 @@ export function buildOfflinePortalHtml(snapshot: OfflinePortalSnapshot): string 
       shuttle: OFFICIAL_SHUTTLE_SCHEDULE,
       wellness: OFFICIAL_WELLNESS_SERVICES,
       uniContact: OFFICIAL_UNIVERSITY_CONTACT,
+      basijInfo: BASIJ_OFFICIAL_INFO,
       heyatInfo: HEYAT_OFFICIAL_INFO,
       heyatWeekly: HEYAT_WEEKLY_SCHEDULE,
     },
@@ -898,9 +900,16 @@ footer { margin-top: 48px; border-top: 1px solid var(--line); padding: 24px 16px
     const quizMatches = DATA.cadres.filter((c) => c.tags.includes(topTag)).slice(0, 3);
 
     return '<section class="hero">' + latticeSvg(0.08) +
-      '<div class="z1"><p class="kicker">ساختار تعاملی کانون‌های بسیج دانشجویی · قرار قیام ۹</p>' +
+      '<div class="z1"><p class="kicker">کانال رسمی ' + esc(ST.basijInfo.officialName) + ' · قرار قیام ۹</p>' +
       '<h1>بسیج دانشجویی ' + esc(S.universityName) + '</h1>' +
       '<p class="muted" style="max-width:740px">' + esc(S.basijIntroText) + '</p>' +
+      '<div class="pills" style="margin-top:12px">' +
+        '<a class="btn btn-gold" href="' + esc(ST.basijInfo.telegramUrl) + '" target="_blank" rel="noopener noreferrer">تلگرام رسمی ' + esc(ST.basijInfo.telegramHandle) + '</a>' +
+        '<a class="btn btn-emerald" href="' + esc(ST.basijInfo.eitaaUrl) + '" target="_blank" rel="noopener noreferrer">کانال ایتا (' + esc(ST.basijInfo.eitaaHandle) + ')</a>' +
+        '<a class="btn" href="' + esc(ST.basijInfo.profileUrl) + '" target="_blank" rel="noopener noreferrer">پروفایل لینک‌ها (' + esc(ST.basijInfo.profileLabel) + ')</a>' +
+        '<a class="btn" href="' + esc(ST.basijInfo.brothersAdminUrl) + '" target="_blank" rel="noopener noreferrer">ادمین برادران: ' + esc(ST.basijInfo.brothersAdminHandle) + '</a>' +
+        '<a class="btn" href="' + esc(ST.basijInfo.sistersAdminUrl) + '" target="_blank" rel="noopener noreferrer">ادمین خواهران: ' + esc(ST.basijInfo.sistersAdminHandle) + '</a>' +
+      '</div>' +
       '<hr class="divider"/><p class="kicker">تعریف رسمی کانون</p><p class="muted" style="font-size:13px;margin:0">' + esc(ST.cadreDefinition) + '</p></div></section>' +
 
       '<section class="section"><div><p class="kicker">۰۱. چارت تعاملی ۲۵ کانون و تطبیق رشته</p><h2>روی هر محور یا کانون کلیک کن</h2></div>' +
@@ -1006,14 +1015,21 @@ footer { margin-top: 48px; border-top: 1px solid var(--line); padding: 24px 16px
         '<div class="card span7">' +
           '<div style="border-radius:16px;overflow:hidden;background:#061815;border:1px solid var(--line)">' +
           '<svg viewBox="0 0 760 480" style="width:100%;height:auto;display:block">' +
-            '<g transform="rotate(-32 380 232)">' +
-              '<rect x="172" y="138" width="212" height="196" rx="12" fill="#0d2a24" stroke="rgba(222,177,84,0.42)" stroke-width="2"/>' +
-              '<rect x="216" y="182" width="124" height="108" rx="8" fill="#071916" stroke="rgba(94,234,212,0.28)" stroke-width="1.3"/>' +
-              '<rect x="378" y="96" width="218" height="202" rx="12" fill="#0d2a24" stroke="rgba(222,177,84,0.42)" stroke-width="2"/>' +
-              '<rect x="424" y="140" width="126" height="114" rx="8" fill="#071916" stroke="rgba(94,234,212,0.28)" stroke-width="1.3"/>' +
-              '<rect x="366" y="176" width="52" height="104" rx="6" fill="#133830" stroke="rgba(222,177,84,0.35)" stroke-width="1.4"/>' +
+            '<g transform="translate(380,248) scale(0.92) rotate(-32)">' +
+              '<rect x="-245" y="-82" width="205" height="176" rx="8" fill="#0d2a24" stroke="rgba(222,177,84,0.48)" stroke-width="2"/>' +
+              '<rect x="-205" y="-44" width="126" height="98" rx="5" fill="#071916" stroke="rgba(94,234,212,0.34)" stroke-width="1.3"/>' +
+              '<rect x="-40" y="-88" width="76" height="178" rx="6" fill="#133830" stroke="rgba(222,177,84,0.58)" stroke-width="1.8"/>' +
+              '<rect x="36" y="-114" width="212" height="196" rx="8" fill="#0d2a24" stroke="rgba(222,177,84,0.48)" stroke-width="2"/>' +
+              '<rect x="76" y="-74" width="132" height="116" rx="5" fill="#071916" stroke="rgba(94,234,212,0.34)" stroke-width="1.3"/>' +
+              '<rect x="-124" y="20" width="44" height="32" rx="7" fill="rgba(250,204,21,0.38)" stroke="#facc15" stroke-width="1.5"/>' +
+              '<rect x="-166" y="62" width="52" height="24" rx="7" fill="rgba(239,68,68,0.4)" stroke="#ef4444" stroke-width="1.5"/>' +
+              '<rect x="-2" y="-84" width="34" height="26" rx="7" fill="rgba(34,197,94,0.4)" stroke="#22c55e" stroke-width="1.5"/>' +
+              '<rect x="208" y="-44" width="34" height="68" rx="8" fill="rgba(249,115,22,0.4)" stroke="#f97316" stroke-width="1.5"/>' +
+              '<rect x="200" y="34" width="44" height="42" rx="8" fill="rgba(168,85,247,0.42)" stroke="#a855f7" stroke-width="1.5"/>' +
             '</g>' +
-            (route ? '<path d="' + route + '" fill="none" stroke="#deb154" stroke-width="3.2" stroke-dasharray="8 6"/>' : '') +
+            (selB.routeWaypoints && selB.routeWaypoints.length > 1
+              ? '<polyline points="' + selB.routeWaypoints.map((p) => p[0] + ',' + p[1]).join(' ') + '" fill="none" stroke="' + selB.color + '" stroke-width="3.2" stroke-dasharray="7 5" stroke-linecap="round" stroke-linejoin="round"/>'
+              : '') +
             ST.campusNodes.map((n, idx) => {
               const s = n.id === selB.id;
               return '<g transform="translate(' + n.x + ',' + n.y + ')" style="cursor:pointer" onclick="selectBuilding(\\'' + n.id + '\\')">' +
@@ -1026,6 +1042,7 @@ footer { margin-top: 48px; border-top: 1px solid var(--line); padding: 24px 16px
         '</div>' +
         '<div class="card span5"><p class="kicker"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + selB.color + ';margin-left:6px;vertical-align:middle"></span>' + esc(selB.colorLabel) + ' · ' + esc(selB.category) + '</p><h3>' + esc(selB.label) + '</h3>' +
           '<p class="muted" style="font-size:13px;margin-top:8px">' + esc(selB.description) + '</p><hr class="divider"/>' +
+          (selB.walkSteps ? '<div class="card-sm" style="margin-bottom:10px"><p class="kicker" style="margin-bottom:4px">مسیر پیاده‌روی گام‌به‌گام</p><ol style="margin:0;padding-right:18px;font-size:12px;line-height:1.8">' + selB.walkSteps.map((ws) => '<li>' + esc(ws) + '</li>').join('') + '</ol></div>' : '') +
           '<p style="font-size:13px"><strong>طبقه / موقعیت:</strong> ' + esc(selB.floor) + '</p>' +
           '<p style="font-size:13px"><strong>ساعت فعالیت:</strong> ' + esc(selB.hours) + '</p>' +
           '<p style="font-size:13px"><strong>نکته کاربردی:</strong> ' + esc(selB.tip) + '</p>' +

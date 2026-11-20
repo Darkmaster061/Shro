@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Clock, Mail, MapPin, MessageSquare, Phone, RefreshCw, Send } from 'lucide-react';
 import { api } from '../api/client';
 import { usePortal } from '../context/PortalContext';
-import { OFFICIAL_UNIVERSITY_CONTACT } from '../data/orientation';
+import { BASIJ_OFFICIAL_INFO, OFFICIAL_UNIVERSITY_CONTACT } from '../data/orientation';
 
 export const ContactPage: React.FC = () => {
   const { settings, showToast } = usePortal();
@@ -97,6 +97,48 @@ export const ContactPage: React.FC = () => {
                   <p className="font-semibold text-ink">دفتر هیئت دانشجویی</p>
                   <p className="mt-0.5">{settings.heyatOfficeLocation}</p>
                 </div>
+              </div>
+
+              <div className="rounded-xl border border-line bg-canvas p-3.5 space-y-2 text-xs">
+                <p className="font-bold text-ink">{BASIJ_OFFICIAL_INFO.officialName}</p>
+                <div className="flex flex-wrap gap-2">
+                  <a
+                    href={BASIJ_OFFICIAL_INFO.telegramUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 rounded-lg bg-surface border border-line hover:border-gold/50 text-gold font-mono"
+                    dir="ltr"
+                  >
+                    {BASIJ_OFFICIAL_INFO.telegramHandle}
+                  </a>
+                  <a
+                    href={BASIJ_OFFICIAL_INFO.eitaaUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 rounded-lg bg-surface border border-line hover:border-gold/50 text-ink"
+                  >
+                    ایتا: <span dir="ltr" className="font-mono text-gold">basijuog</span>
+                  </a>
+                  <a
+                    href={BASIJ_OFFICIAL_INFO.profileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-2.5 py-1 rounded-lg bg-surface border border-line hover:border-gold/50 text-ink"
+                  >
+                    پروفایل: <span dir="ltr" className="font-mono text-gold">{BASIJ_OFFICIAL_INFO.profileLabel}</span>
+                  </a>
+                </div>
+                <p className="text-ink-muted">
+                  ادمین برادران:{' '}
+                  <a href={BASIJ_OFFICIAL_INFO.brothersAdminUrl} target="_blank" rel="noopener noreferrer" dir="ltr" className="font-mono text-gold hover:underline">
+                    {BASIJ_OFFICIAL_INFO.brothersAdminHandle}
+                  </a>
+                  {' · '}
+                  ادمین خواهران:{' '}
+                  <a href={BASIJ_OFFICIAL_INFO.sistersAdminUrl} target="_blank" rel="noopener noreferrer" dir="ltr" className="font-mono text-gold hover:underline">
+                    {BASIJ_OFFICIAL_INFO.sistersAdminHandle}
+                  </a>
+                </p>
               </div>
             </div>
 

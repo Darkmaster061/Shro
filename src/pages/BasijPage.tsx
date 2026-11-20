@@ -18,7 +18,7 @@ import { TiltCard } from '../components/TiltCard';
 import { GeometricLatticeBg } from '../components/GeometricLatticeBg';
 import { AxisIcon, BasijOrgChart } from '../components/BasijOrgChart';
 import { CadreDossierModal } from '../components/CadreDossierModal';
-import { BASIJ_TIMELINE, CADRE_QUIZ_QUESTIONS } from '../data/orientation';
+import { BASIJ_OFFICIAL_INFO, BASIJ_TIMELINE, CADRE_QUIZ_QUESTIONS } from '../data/orientation';
 import {
   BASIJ_AXIS_CATEGORIES,
   BASIJ_CADRE_DEFINITION,
@@ -167,10 +167,17 @@ export const BasijPage: React.FC = () => {
         <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
           <div className="lg:col-span-8 space-y-4">
             <div className="flex items-center gap-3.5">
-              <LogoEmblem type="basij" src={settings.basijLogoUrl} size="md" />
+              <LogoEmblem
+                type="basij"
+                src={settings.basijLogoUrl || BASIJ_OFFICIAL_INFO.logoUrl}
+                size="md"
+              />
               <div>
                 <p className="text-xs font-semibold text-gold">
-                  ساختار تعاملی کانون‌های بسیج دانشجویی · قرار قیام ۹
+                  {BASIJ_OFFICIAL_INFO.officialName} · کانال رسمی{' '}
+                  <bdi dir="ltr" className="inline-block font-mono [unicode-bidi:isolate]">
+                    {`\u2066${BASIJ_OFFICIAL_INFO.telegramHandle}\u2069`}
+                  </bdi>
                 </p>
                 <h1 className="text-2xl sm:text-4xl font-extrabold text-ink mt-0.5">
                   بسیج دانشجویی {settings.universityName}
@@ -180,22 +187,72 @@ export const BasijPage: React.FC = () => {
             <p className="text-sm sm:text-base text-ink-muted leading-relaxed max-w-2xl">
               {settings.basijIntroText}
             </p>
-            <div className="flex flex-wrap items-center gap-3 pt-2">
+            <div className="flex flex-wrap items-center gap-2.5 pt-2">
               <a
-                href={settings.basijEitaaUrl || settings.basijTelegramUrl || '#'}
+                href={settings.basijTelegramUrl || BASIJ_OFFICIAL_INFO.telegramUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="min-h-[46px] px-5 rounded-xl bg-gold text-[#071714] hover:bg-gold-strong font-bold text-sm inline-flex items-center gap-2 transition-colors"
+                className="min-h-[44px] px-4 rounded-xl bg-gold text-[#071714] hover:bg-gold-strong font-bold text-xs sm:text-sm inline-flex items-center gap-2 transition-colors"
               >
-                <span>چطور عضو شوم؟ (ارتباط مستقیم)</span>
-                <ExternalLink className="w-4 h-4" />
+                <span>کانال تلگرام</span>
+                <span dir="ltr" className="font-mono text-xs">
+                  {BASIJ_OFFICIAL_INFO.telegramHandle}
+                </span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+              <a
+                href={settings.basijEitaaUrl || BASIJ_OFFICIAL_INFO.eitaaUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[44px] px-4 rounded-xl bg-emerald-deep text-[#f4f1e8] hover:bg-emerald-mid border border-gold/30 font-bold text-xs sm:text-sm inline-flex items-center gap-2 transition-colors"
+              >
+                <span>کانال ایتا</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+              <a
+                href={BASIJ_OFFICIAL_INFO.profileUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[44px] px-4 rounded-xl border border-line bg-canvas/85 hover:border-gold/50 text-xs sm:text-sm font-semibold text-ink inline-flex items-center gap-2 transition-colors"
+              >
+                <span>پروفایل لینک‌ها</span>
+                <span dir="ltr" className="font-mono text-xs text-gold">
+                  {BASIJ_OFFICIAL_INFO.profileLabel}
+                </span>
               </a>
               <a
                 href="#org-chart"
-                className="min-h-[46px] px-5 rounded-xl border border-line bg-canvas/85 hover:border-gold/50 text-sm font-semibold text-ink inline-flex items-center gap-2 transition-colors"
+                className="min-h-[44px] px-4 rounded-xl border border-line bg-canvas/85 hover:border-gold/50 text-xs sm:text-sm font-semibold text-ink inline-flex items-center gap-2 transition-colors"
               >
                 <Layers className="w-4 h-4 text-gold" />
-                <span>مشاهده چارت تعاملی ۲۵ کانون</span>
+                <span>چارت ۲۵ کانون</span>
+              </a>
+            </div>
+
+            {/* راه ارتباط مستقیم با ادمین‌های برادران و خواهران بسیج دانشجویی */}
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+              <span className="text-ink-muted font-semibold">ارتباط مستقیم با ادمین‌ها:</span>
+              <a
+                href={BASIJ_OFFICIAL_INFO.brothersAdminUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-lg border border-line bg-canvas hover:border-gold/50 text-ink inline-flex items-center gap-1.5 transition-colors"
+              >
+                <span>ادمین برادران</span>
+                <span dir="ltr" className="font-mono text-gold font-bold">
+                  {BASIJ_OFFICIAL_INFO.brothersAdminHandle}
+                </span>
+              </a>
+              <a
+                href={BASIJ_OFFICIAL_INFO.sistersAdminUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-lg border border-line bg-canvas hover:border-gold/50 text-ink inline-flex items-center gap-1.5 transition-colors"
+              >
+                <span>ادمین خواهران</span>
+                <span dir="ltr" className="font-mono text-gold font-bold">
+                  {BASIJ_OFFICIAL_INFO.sistersAdminHandle}
+                </span>
               </a>
             </div>
           </div>

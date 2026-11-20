@@ -87,18 +87,21 @@ export const WelcomeGate: React.FC = () => {
             </div>
 
             <a
-              href={settings.basijTelegramUrl || '#'}
+              href={settings.basijTelegramUrl || 'https://t.me/BasijUOG'}
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => setBasijClicked(true)}
               className="mt-3 w-full min-h-[44px] inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-deep text-[#f4f1e8] hover:bg-emerald-mid px-4 py-2.5 text-sm font-semibold transition-colors"
             >
               <span>عضویت در کانال تلگرام بسیج</span>
+              <span dir="ltr" className="font-mono text-xs opacity-90">
+                @BasijUOG
+              </span>
               <ExternalLink className="w-4 h-4" />
             </a>
 
             <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-ink-muted">
-              <span>پیام‌رسان جایگزین:</span>
+              <span>پیام‌رسان و لینک‌های رسمی:</span>
               {settings.basijEitaaUrl && (
                 <a
                   href={settings.basijEitaaUrl}
@@ -107,9 +110,18 @@ export const WelcomeGate: React.FC = () => {
                   onClick={() => setBasijClicked(true)}
                   className="text-gold hover:underline font-medium"
                 >
-                  ایتا
+                  کانال ایتا
                 </a>
               )}
+              <a
+                href="https://zil.ink/basijuog"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => setBasijClicked(true)}
+                className="text-gold hover:underline font-medium"
+              >
+                پروفایل (zil.ink)
+              </a>
               {settings.basijBaleUrl && (
                 <a
                   href={settings.basijBaleUrl}
