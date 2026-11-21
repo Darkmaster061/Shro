@@ -3,10 +3,29 @@ import type { Request, Response, NextFunction } from 'express';
 import { buildBirthHashInput } from '../src/utils/coupon';
 import { toPersianDigits } from '../src/utils/persian';
 
-const COUPON_PEPPER =
-  process.env.COUPON_PEPPER || 'dev-only-gonabad-coupon-pepper-change-in-prod';
+const PLACEHOLDER_SECRETS = new Set([
+  '',
+  'change-this-to-a-long-random-64-char-secret-in-production',
+  'change-this-to-another-long-random-secret-in-production',
+  'dev-only-gonabad-coupon-pepper-change-in-prod',
+  'dev-only-gonabad-session-secret-change-in-prod',
+]);
+
+const envCouponPepper = (process.env.COUPON_PEPPER || '').trim();
+const envSessionSecret = (process.env.SESSION_SECRET || '').trim();
+
+const COUPON_PEPPER = envCouponPepper || 'dev-only-gonabad-coupon-pepper-change-in-prod';
+// در صورت تنظیم نبودن SESSION_SECRET در سرور، کلید تصادفی درون‌حافظه‌ای تولید می‌شود (بدون مقدار ثابت قابل حدس)
 const SESSION_SECRET =
-  process.env.SESSION_SECRET || 'dev-only-gonabad-session-secret-change-in-prod';
+  envSessionSecret && !PLACEHOLDER_SECRETS.has(envSessionSecret)
+    ? envSessionSecret
+    : crypto.randomBytes(32).toString('hex');
+
+export function getSecretHealth() {
+  const weakCouponPepper = PLACEHOLDER_SECRETS.has(envCouponPepper) || envCouponPepper.length < 24;
+  const weakSessionSecret = PLACEHOLDER_SECRETS.has(envSessionSecret) || envSessionSecret.length < 24;
+  return { weakCouponPepper, weakSessionSecret };
+}
 
 /**
  * تولید هش غیرقابل بازگشت HMAC-SHA256 برای تاریخ تولد و هویت دانشجو
@@ -74,16 +93,28 @@ export function verifySelfHostedCaptcha(token: string, userAnswer: string): bool
       .createHmac('sha256', SESSION_SECRET)
       .update(payload)
       .digest('hex');
-    return crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
+    const sigBuf = Buffer.from(sig);
+    const expBuf = Buffer.from(expected);
+    if (sigBuf.length !== expBuf.length) return false;
+    return crypto.timingSafeEqual(sigBuf, expBuf);
   } catch {
     return false;
   }
 }
 
 /**
- * محدودکننده نرخ (Rate Limiter) درون‌حافظه‌ای برای جلوگیری از حدس لیست و حملات Brute-force
+ * محدودکننده نرخ (Rate Limiter) درون‌حافظه‌ای با پاک‌سازی خودکار جهت جلوگیری از رشد بی‌رویه حافظه
  */
 const rateBuckets = new Map<string, number[]>();
+const MAX_RATE_BUCKETS = 2500;
+
+function pruneRateBuckets(now: number, maxAgeMs: number) {
+  for (const [k, list] of rateBuckets.entries()) {
+    const kept = list.filter((ts) => now - ts < maxAgeMs);
+    if (kept.length === 0) rateBuckets.delete(k);
+    else rateBuckets.set(k, kept);
+  }
+}
 
 export function checkRateLimit(
   key: string,
@@ -91,6 +122,9 @@ export function checkRateLimit(
   windowMs: number
 ): { allowed: boolean; retryAfterSec: number } {
   const now = Date.now();
+  if (rateBuckets.size > MAX_RATE_BUCKETS) {
+    pruneRateBuckets(now, Math.max(windowMs, 60 * 60 * 1000));
+  }
   const existing = rateBuckets.get(key) || [];
   const valid = existing.filter((ts) => now - ts < windowMs);
   if (valid.length >= maxAttempts) {
@@ -108,6 +142,42 @@ export function getClientIp(req: Request): string {
   const forwarded = req.headers['x-forwarded-for'];
   if (typeof forwarded === 'string') return forwarded.split(',')[0].trim();
   return req.socket.remoteAddress || '127.0.0.1';
+}
+
+/**
+ * اعتبارسنجی و پاک‌سازی URLهای قابل تنظیم توسط ادمین (جلوگیری از لینک‌های javascript: و data:)
+ */
+export function sanitizeSafeUrl(raw: unknown, allowRelative = true): string {
+  if (typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  // مسدود کردن کاراکترهای کنترلی
+  if (/[\u0000-\u001f\u007f]/.test(trimmed)) return '';
+
+  if (allowRelative && trimmed.startsWith('/') && !trimmed.startsWith('//')) {
+    return trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+      return trimmed;
+    }
+  } catch {
+    return '';
+  }
+  return '';
+}
+
+/**
+ * خنثی‌سازی تزریق فرمول در خروجی CSV (جلوگیری از اجرای فرمول‌های ناخواسته در Excel)
+ */
+export function escapeCsvCell(value: unknown): string {
+  let text = String(value ?? '');
+  if (/^[=+\-@\t\r]/.test(text)) {
+    text = `'${text}`;
+  }
+  return `"${text.replace(/"/g, '""')}"`;
 }
 
 /**
@@ -139,11 +209,14 @@ export function detectSafeFileType(
   if (buffer.subarray(0, 5).toString('ascii') === '%PDF-') {
     return { allowed: true, ext: '.pdf', mime: 'application/pdf' };
   }
-  // SVG (پاک‌سازی اسکریپت‌های احتمالی)
+  // SVG سخت‌گیرانه (مسدودسازی اسکریپت، رویدادها، foreignObject، لینک‌های خطرناک و کدگذاری‌های فریبنده)
   if (originalName.toLowerCase().endsWith('.svg')) {
     const text = buffer.toString('utf8').trim();
     const hasSvg = text.startsWith('<svg') || text.startsWith('<?xml');
-    const dangerous = /<script|on\w+\s*=|javascript:/i.test(text);
+    const dangerous =
+      /<script|<foreignObject|<iframe|<object|<embed|<set\b|<animate|\bon[a-z]+\s*=|javascript:|vbscript:|data\s*:\s*text\/html|xlink:href\s*=\s*["']?\s*(?!#)|&#/i.test(
+        text
+      );
     if (hasSvg && !dangerous) {
       return { allowed: true, ext: '.svg', mime: 'image/svg+xml' };
     }
@@ -152,7 +225,7 @@ export function detectSafeFileType(
 }
 
 /**
- * محافظت پایه CSRF روی درخواست‌های تغییر وضعیت پنل ادمین
+ * محافظت پایه CSRF روی درخواست‌های تغییر وضعیت پنل ادمین و اسکنر
  */
 export function requireCsrfHeader(req: Request, res: Response, next: NextFunction) {
   if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {

@@ -51,6 +51,9 @@ export const AdminPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loginErr, setLoginErr] = useState('');
   const [tab, setTab] = useState<AdminTab>('settings');
+  const [curPass, setCurPass] = useState('');
+  const [nextPass, setNextPass] = useState('');
+  const [changingPass, setChangingPass] = useState(false);
 
   // تنظیمات
   const [draftSettings, setDraftSettings] = useState<SiteSettings>(settings);
@@ -434,11 +437,8 @@ export const AdminPage: React.FC = () => {
             </button>
           </form>
 
-          <div className="rounded-xl border border-line bg-canvas p-3.5 text-xs text-ink-muted space-y-1">
-            <p className="font-semibold text-ink">حساب‌های پیش‌فرض راه‌اندازی (پیش از استقرار تغییر دهید):</p>
-            <p className="font-mono">owner / Gonabad@Owner2026</p>
-            <p className="font-mono">editor / Gonabad@Editor2026</p>
-            <p className="font-mono">food / Gonabad@Food2026</p>
+          <div className="rounded-xl border border-line bg-canvas p-3.5 text-xs text-ink-muted leading-6">
+            دسترسی این بخش مخصوص مسئولان مجاز است. در صورت نیاز به دریافت یا تغییر رمز عبور، با مدیر کل سامانه هماهنگ کنید.
           </div>
 
           <Link to="/" className="block text-center text-xs text-gold hover:underline">
@@ -1406,6 +1406,58 @@ export const AdminPage: React.FC = () => {
             </div>
 
             <div className="space-y-6">
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setChangingPass(true);
+                  try {
+                    const res = await api.changePassword(curPass, nextPass);
+                    showToast(res.message, 'success');
+                    setCurPass('');
+                    setNextPass('');
+                    if (user) loadTabData(user, 'audit');
+                  } catch (err) {
+                    showToast(err instanceof Error ? err.message : 'خطا در تغییر رمز عبور', 'error');
+                  } finally {
+                    setChangingPass(false);
+                  }
+                }}
+                className="rounded-2xl border border-gold/40 bg-surface p-6 space-y-3"
+              >
+                <h2 className="font-bold text-ink">تغییر رمز عبور حساب فعلی ({user.username})</h2>
+                <p className="text-xs text-ink-muted leading-6">
+                  پیش از راه‌اندازی رسمی حتماً رمز عبور پیش‌فرض را به یک رمز قوی (حداقل ۸ کاراکتر) تغییر دهید. پس از تغییر، سایر نشست‌های باز این حساب خودکار بسته می‌شوند.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    type="password"
+                    required
+                    value={curPass}
+                    onChange={(e) => setCurPass(e.target.value)}
+                    placeholder="رمز عبور فعلی"
+                    aria-label="رمز عبور فعلی"
+                    className="min-h-[42px] rounded-xl border border-line bg-canvas px-3 text-xs text-ink"
+                  />
+                  <input
+                    type="password"
+                    required
+                    minLength={8}
+                    value={nextPass}
+                    onChange={(e) => setNextPass(e.target.value)}
+                    placeholder="رمز عبور جدید (حداقل ۸ کاراکتر)"
+                    aria-label="رمز عبور جدید"
+                    className="min-h-[42px] rounded-xl border border-line bg-canvas px-3 text-xs text-ink"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={changingPass}
+                  className="min-h-[40px] px-4 rounded-xl bg-gold text-[#071714] font-bold text-xs cursor-pointer disabled:opacity-60"
+                >
+                  {changingPass ? 'در حال ذخیره...' : 'ثبت رمز عبور جدید'}
+                </button>
+              </form>
+
               <div className="rounded-2xl border border-line bg-surface p-6 space-y-3">
                 <h2 className="font-bold text-ink">پیام‌های تماس با ما</h2>
                 {overview.messages.length === 0 ? (

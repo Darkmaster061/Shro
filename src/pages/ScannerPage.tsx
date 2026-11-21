@@ -401,9 +401,8 @@ export const ScannerPage: React.FC = () => {
             </button>
           </form>
 
-          <div className="rounded-xl border border-line bg-canvas p-3 text-xs text-ink-muted space-y-1">
-            <p className="font-semibold text-ink">حساب نمونه برای تست محلی:</p>
-            <p className="font-mono">scanner / Gonabad@Scan2026</p>
+          <div className="rounded-xl border border-line bg-canvas p-3 text-xs text-ink-muted leading-6">
+            ورود مخصوص مسئولان پخش صبحانه هیئت است. نام کاربری و رمز عبور خود را از مسئول تغذیه یا مدیر سامانه دریافت کنید.
           </div>
 
           <Link to="/" className="block text-center text-xs text-gold hover:underline">

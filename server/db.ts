@@ -285,10 +285,13 @@ function seedInitialData() {
       'INSERT INTO admin_users (username, display_name, password_hash, role) VALUES (?, ?, ?, ?)'
     );
     const ownerPass = process.env.ADMIN_PASSWORD || 'Gonabad@Owner2026';
-    insertUser.run('owner', 'مدیر کل سامانه', bcrypt.hashSync(ownerPass, 10), 'owner');
-    insertUser.run('editor', 'ویراستار محتوا', bcrypt.hashSync('Gonabad@Editor2026', 10), 'editor');
-    insertUser.run('food', 'مسئول تغذیه و ژتون', bcrypt.hashSync('Gonabad@Food2026', 10), 'food_manager');
-    insertUser.run('scanner', 'مسئول پخش صبحانه', bcrypt.hashSync('Gonabad@Scan2026', 10), 'scanner');
+    const editorPass = process.env.EDITOR_PASSWORD || 'Gonabad@Editor2026';
+    const foodPass = process.env.FOOD_PASSWORD || 'Gonabad@Food2026';
+    const scannerPass = process.env.SCANNER_PASSWORD || 'Gonabad@Scan2026';
+    insertUser.run('owner', 'مدیر کل سامانه', bcrypt.hashSync(ownerPass, 12), 'owner');
+    insertUser.run('editor', 'ویراستار محتوا', bcrypt.hashSync(editorPass, 12), 'editor');
+    insertUser.run('food', 'مسئول تغذیه و ژتون', bcrypt.hashSync(foodPass, 12), 'food_manager');
+    insertUser.run('scanner', 'مسئول پخش صبحانه', bcrypt.hashSync(scannerPass, 12), 'scanner');
   }
 
   // وعده‌های صبحانه نمونه

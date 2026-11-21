@@ -26,6 +26,9 @@ import {
   getClientIp,
   detectSafeFileType,
   requireCsrfHeader,
+  getSecretHealth,
+  sanitizeSafeUrl,
+  escapeCsvCell,
 } from './server/security';
 import { normalizeNameCompact, searchFaqs, toPersianDigits } from './src/utils/persian';
 import { parseStudentsCsv, resolveOfflineClaimConflict } from './src/utils/coupon';
@@ -69,16 +72,24 @@ app.use(cookieParser());
 app.use(express.json({ limit: '4mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
-// سرو ایمن فایل‌های آپلودی بدون امکان اجرای اسکریپت
+// سرو ایمن فایل‌های آپلودی بدون امکان اجرای اسکریپت (حتی در صورت باز شدن مستقیم SVG)
 app.use(
   '/uploads',
   (_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
     res.setHeader('Cache-Control', 'public, max-age=3600');
     next();
   },
   express.static(uploadsDir)
 );
+
+// جلوگیری از کش‌شدن پاسخ‌های حساس (نشست ادمین، لیست اسکنر و ژتون دانشجو) در مرورگر یا پروکسی
+app.use(['/api/admin', '/api/scan', '/api/coupon'], (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+});
 
 // کش ۶۰ ثانیه‌ای برای APIهای عمومی جهت تحمل بار روزهای ثبت‌نام
 const publicCache = new Map<string, { expires: number; data: unknown }>();
@@ -182,6 +193,11 @@ app.get('/api/public/faq', (req, res) => {
 });
 
 app.post('/api/public/faq/:id/vote', (req, res) => {
+  const ip = getClientIp(req);
+  if (!checkRateLimit(`faq-vote:${ip}`, 30, 10 * 60 * 1000).allowed) {
+    res.status(429).json({ error: 'تعداد ثبت رأی بیش از حد مجاز است. دقایقی دیگر تلاش کنید.' });
+    return;
+  }
   const id = Number(req.params.id);
   const schema = z.object({ helpful: z.enum(['yes', 'no']) });
   const parsed = schema.safeParse(req.body);
@@ -598,12 +614,18 @@ app.post('/api/admin/login', (req, res) => {
   });
 });
 
-app.post('/api/admin/logout', (req, res) => {
+app.post('/api/admin/logout', requireCsrfHeader, (req, res) => {
   const token = req.cookies?.portal_session;
   if (token) {
     db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
   }
-  res.clearCookie('portal_session', { path: '/' });
+  const isHttps = req.secure || req.headers['x-forwarded-proto'] === 'https';
+  res.clearCookie('portal_session', {
+    httpOnly: true,
+    sameSite: isHttps ? 'none' : 'lax',
+    secure: isHttps,
+    path: '/',
+  });
   res.json({ ok: true });
 });
 
@@ -611,6 +633,48 @@ app.get('/api/admin/me', (req: AuthedRequest, res) => {
   const user = attachAdmin(req);
   res.json({ user: user || null });
 });
+
+app.post(
+  '/api/admin/change-password',
+  requireCsrfHeader,
+  requireRole(['owner', 'editor', 'food_manager', 'scanner']),
+  (req: AuthedRequest, res) => {
+    const ip = getClientIp(req);
+    if (!checkRateLimit(`chgpass:${req.adminUser!.id}:${ip}`, 6, 15 * 60 * 1000).allowed) {
+      res.status(429).json({ error: 'تعداد تلاش‌های تغییر رمز بیش از حد مجاز است.' });
+      return;
+    }
+    const schema = z.object({
+      currentPassword: z.string().min(4).max(100),
+      newPassword: z.string().min(8).max(100),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'رمز عبور جدید باید حداقل ۸ کاراکتر باشد.' });
+      return;
+    }
+    const row = db
+      .prepare('SELECT id, username, password_hash FROM admin_users WHERE id = ?')
+      .get(req.adminUser!.id) as { id: number; username: string; password_hash: string } | undefined;
+    if (!row || !bcrypt.compareSync(parsed.data.currentPassword, row.password_hash)) {
+      res.status(400).json({ error: 'رمز عبور فعلی نادرست است.' });
+      return;
+    }
+    const nextHash = bcrypt.hashSync(parsed.data.newPassword, 12);
+    const currentToken = req.cookies?.portal_session || '';
+    const tx = db.transaction(() => {
+      db.prepare('UPDATE admin_users SET password_hash = ?, failed_attempts = 0, locked_until = 0 WHERE id = ?').run(
+        nextHash,
+        row.id
+      );
+      // باطل کردن نشست‌های قدیمی سایر دستگاه‌ها برای امنیت بیشتر
+      db.prepare('DELETE FROM sessions WHERE user_id = ? AND token != ?').run(row.id, currentToken);
+    });
+    tx();
+    logAudit(row.username, 'CHANGE_PASSWORD', 'تغییر رمز عبور حساب کاربری', ip);
+    res.json({ ok: true, message: 'رمز عبور با موفقیت تغییر یافت و نشست‌های دیگر بسته شد.' });
+  }
+);
 
 // ==========================================
 // 4. SCANNER PWA ENDPOINTS
@@ -909,12 +973,50 @@ app.get(
   }
 );
 
+const SETTING_URL_FIELDS = [
+  'basijLogoUrl',
+  'heyatLogoUrl',
+  'heroImageUrl',
+  'urgentBannerLink',
+  'basijTelegramUrl',
+  'basijEitaaUrl',
+  'basijBaleUrl',
+  'basijRubikaUrl',
+  'heyatTelegramUrl',
+  'heyatEitaaUrl',
+  'heyatBaleUrl',
+  'heyatRubikaUrl',
+  'cadresPdfUrl',
+] as const;
+
 app.put(
   '/api/admin/settings',
   requireCsrfHeader,
   requireRole(['owner', 'editor']),
   (req: AuthedRequest, res) => {
-    saveSettings(req.body || {});
+    const incoming = { ...(req.body || {}) } as Record<string, unknown>;
+    for (const field of SETTING_URL_FIELDS) {
+      if (field in incoming) {
+        const raw = incoming[field];
+        if (typeof raw === 'string' && raw.trim() !== '') {
+          const safe = sanitizeSafeUrl(raw, true);
+          if (!safe) {
+            res.status(400).json({ error: `آدرس واردشده برای فیلد «${field}» معتبر یا ایمن نیست.` });
+            return;
+          }
+          incoming[field] = safe;
+        } else {
+          incoming[field] = '';
+        }
+      }
+    }
+    if ('accentColor' in incoming && typeof incoming.accentColor === 'string') {
+      if (!/^#[0-9a-fA-F]{6}$/.test(incoming.accentColor)) {
+        res.status(400).json({ error: 'کد رنگ انتخابی باید در قالب هگز ۶ رقمی باشد.' });
+        return;
+      }
+    }
+    saveSettings(incoming);
     clearPublicCache();
     logAudit(req.adminUser!.username, 'UPDATE_SETTINGS', 'به‌روزرسانی تنظیمات عمومی و ظاهری', getClientIp(req));
     res.json(getSettings());
@@ -1250,7 +1352,14 @@ app.get('/api/admin/reports/breakfast.csv', requireRole(['owner', 'food_manager'
         : r.meal_id === mealId
         ? 'دریافت کرده در همین وعده'
         : 'دریافت کرده در روز دیگر';
-      return `"${r.first_name}","${r.last_name}","${r.note}","${statusText}","${r.meal_name || '-'}","${r.claimed_at || '-'}"`;
+      return [
+        escapeCsvCell(r.first_name),
+        escapeCsvCell(r.last_name),
+        escapeCsvCell(r.note),
+        escapeCsvCell(statusText),
+        escapeCsvCell(r.meal_name || '-'),
+        escapeCsvCell(r.claimed_at || '-'),
+      ].join(',');
     })
     .join('\n');
 
@@ -1403,8 +1512,8 @@ app.post('/api/admin/dorms', requireCsrfHeader, requireRole(['owner', 'editor'])
       d.gender,
       d.address || '[نیاز به تکمیل]',
       d.distanceToCampus || '[نیاز به تکمیل]',
-      d.neshanUrl || 'https://neshan.org/maps',
-      d.baladUrl || 'https://balad.ir',
+      sanitizeSafeUrl(d.neshanUrl, false) || 'https://neshan.org/maps',
+      sanitizeSafeUrl(d.baladUrl, false) || 'https://balad.ir',
       d.monthlyFee || '[نیاز به تکمیل]',
       d.capacity || '[نیاز به تکمیل]',
       d.roomType || '[نیاز به تکمیل]',
@@ -1445,11 +1554,11 @@ app.post('/api/admin/cadres', requireCsrfHeader, requireRole(['owner', 'editor']
       c.fullDesc || c.shortDesc,
       c.leadName || '[نیاز به تکمیل]',
       c.meetingSchedule || '[نیاز به تکمیل]',
-      c.joinLink || '',
+      sanitizeSafeUrl(c.joinLink, true),
       c.contactInfo || '[نیاز به تکمیل]',
       JSON.stringify(c.highlights || []),
       JSON.stringify(c.tags || []),
-      c.imageUrl || '',
+      sanitizeSafeUrl(c.imageUrl, true),
       Number(c.pdfPage || 1)
     );
   clearPublicCache();
@@ -1657,6 +1766,19 @@ async function start() {
 
   httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`Gonabad Orientation Portal running on http://0.0.0.0:${PORT}`);
+    if (isProd) {
+      const health = getSecretHealth();
+      if (health.weakCouponPepper) {
+        console.warn(
+          '[SECURITY WARNING] COUPON_PEPPER is missing or weak in production. Set a random 64-char secret in environment variables.'
+        );
+      }
+      if (health.weakSessionSecret) {
+        console.warn(
+          '[SECURITY WARNING] SESSION_SECRET is missing or weak in production (using ephemeral random key). Set a persistent random secret in environment variables.'
+        );
+      }
+    }
   });
 }
 

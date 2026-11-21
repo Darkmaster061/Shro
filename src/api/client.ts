@@ -117,6 +117,11 @@ export const api = {
     const res = await request<{ user: AdminUser | null }>('/api/admin/me');
     return res.user;
   },
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ ok: boolean; message: string }>('/api/admin/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
 
   // اسکنر مسئول پخش
   getScanMeals: () => request<MealItem[]>('/api/scan/meals'),
