@@ -18,6 +18,7 @@ import { api } from '../api/client';
 import { useOnlineStatus } from '../hooks/usePWAInstall';
 import { formatJalaliTime } from '../utils/jalali';
 import { normalizeNameCompact, toPersianDigits } from '../utils/persian';
+import { normalizeStudentNumber } from '../utils/studentValidation';
 import { checkSingleBreakfastEligibility, findStudentExistingClaim } from '../utils/coupon';
 import type {
   AdminUser,
@@ -193,8 +194,14 @@ export const ScannerPage: React.FC = () => {
 
       // حالت آفلاین: بررسی روی کش محلی و افزودن به صف همگام‌سازی
       const stu = cachedStudents.find((s) => s.couponCode === code);
-      if (!stu || !stu.active) {
-        const res: ScanClaimResponse = { status: 'invalid', message: 'نامعتبر یا غیرفعال (آفلاین)' };
+      if (!stu || !stu.active || stu.registrationStatus === 'authorized') {
+        const res: ScanClaimResponse = {
+          status: 'invalid',
+          message:
+            stu?.registrationStatus === 'authorized'
+              ? 'این دانشجو هنوز فرم مشخصات را در صفحه ژتون صبحانه تکمیل نکرده است.'
+              : 'نامعتبر یا غیرفعال (آفلاین)',
+        };
         setOverlay(res);
         playFeedbackTone('invalid');
         return;
@@ -212,6 +219,9 @@ export const ScannerPage: React.FC = () => {
               ? 'قبلاً در همین وعده دریافت کرده (حالت آفلاین)'
               : `قبلاً در «${prevMealTitle}» صبحانه دریافت کرده — سهمیه هر نوورودی فقط یک نوبت در کل روزهای ثبت‌نام است (حالت آفلاین)`,
           studentName,
+          studentNumber: stu.studentNumber || undefined,
+          major: stu.major || undefined,
+          cohortGroup: stu.cohortGroup || undefined,
           claimedAt: eligibility.existingClaimedAtIso,
           mealName: prevMealTitle,
           previousMealName: prevMealTitle,
@@ -248,6 +258,9 @@ export const ScannerPage: React.FC = () => {
         status: 'allowed',
         message: 'مجاز — ثبت در صف آفلاین',
         studentName,
+        studentNumber: stu.studentNumber || undefined,
+        major: stu.major || undefined,
+        cohortGroup: stu.cohortGroup || undefined,
         claimedAt: nowIso,
         mealName,
       });
@@ -333,9 +346,15 @@ export const ScannerPage: React.FC = () => {
 
   const manualMatches = useMemo(() => {
     const q = normalizeNameCompact(searchName);
-    if (!q || q.length < 2) return [];
+    const numQ = normalizeStudentNumber(searchName);
+    if ((!q || q.length < 2) && (!numQ || numQ.length < 3)) return [];
     return cachedStudents
-      .filter((s) => (s.firstNameNorm + s.lastNameNorm).includes(q))
+      .filter((s) => {
+        if (s.registrationStatus === 'authorized') return false;
+        const nameMatch = q.length >= 2 && (s.firstNameNorm + s.lastNameNorm).includes(q);
+        const idMatch = numQ.length >= 3 && Boolean(s.studentNumber && s.studentNumber.includes(numQ));
+        return nameMatch || idMatch;
+      })
       .slice(0, 8);
   }, [cachedStudents, searchName]);
 
@@ -561,17 +580,19 @@ export const ScannerPage: React.FC = () => {
           </form>
         </div>
 
-        {/* جستجوی دستی با نام (برای زمانی که گوشی/QR در دسترس نیست) */}
+        {/* جستجوی دستی با نام یا شماره دانشجویی (برای زمانی که گوشی/QR در دسترس نیست) */}
         <div className="rounded-2xl border border-line bg-surface p-4 space-y-3">
-          <h2 className="text-sm font-bold text-ink">جستجوی دستی با نام دانشجو (آنلاین و آفلاین)</h2>
+          <h2 className="text-sm font-bold text-ink">
+            جستجوی دستی با نام یا شماره دانشجویی (آنلاین و آفلاین)
+          </h2>
           <div className="relative">
             <Search className="w-4 h-4 text-ink-muted absolute right-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="search"
               value={searchName}
               onChange={(e) => setSearchName(e.target.value)}
-              placeholder="حداقل ۲ حرف از نام یا نام‌خانوادگی را بنویس..."
-              aria-label="جستجوی دستی نام دانشجو"
+              placeholder="نام، نام‌خانوادگی یا شماره دانشجویی (مثلاً ۴۰۵...) را بنویس..."
+              aria-label="جستجوی دستی نام یا شماره دانشجویی"
               className="w-full min-h-[44px] rounded-xl border border-line bg-canvas pr-10 pl-3 text-sm text-ink"
             />
           </div>
@@ -587,10 +608,24 @@ export const ScannerPage: React.FC = () => {
                     key={s.id}
                     className="p-3.5 bg-canvas flex items-center justify-between gap-3"
                   >
-                    <div>
-                      <p className="font-bold text-sm text-ink">
-                        {s.firstName} {s.lastName}
-                      </p>
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-bold text-sm text-ink">
+                          {s.firstName} {s.lastName}
+                        </p>
+                        {s.cohortGroup && (
+                          <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-gold-soft text-gold">
+                            {s.cohortGroup}
+                          </span>
+                        )}
+                      </div>
+                      {(s.studentNumber || s.major) && (
+                        <p className="text-xs text-ink-muted tabular-nums">
+                          {s.studentNumber ? `شماره دانشجویی: ${toPersianDigits(s.studentNumber)}` : ''}
+                          {s.studentNumber && s.major ? ' · ' : ''}
+                          {s.major || ''}
+                        </p>
+                      )}
                       <p className="text-xs text-ink-muted">
                         {existingClaim
                           ? claimedOtherDay
@@ -653,6 +688,24 @@ export const ScannerPage: React.FC = () => {
 
           {overlay.studentName && (
             <p className="mt-4 text-2xl sm:text-3xl font-bold">{overlay.studentName}</p>
+          )}
+
+          {(overlay.studentNumber || overlay.major || overlay.cohortGroup) && (
+            <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2 text-xs sm:text-sm font-semibold">
+              {overlay.studentNumber && (
+                <span className="px-3 py-1 rounded-xl bg-black/25 tabular-nums" dir="ltr">
+                  {toPersianDigits(overlay.studentNumber)}
+                </span>
+              )}
+              {overlay.major && (
+                <span className="px-3 py-1 rounded-xl bg-black/25">{overlay.major}</span>
+              )}
+              {overlay.cohortGroup && (
+                <span className="px-3 py-1 rounded-xl bg-white/20 text-white font-bold">
+                  {overlay.cohortGroup}
+                </span>
+              )}
+            </div>
           )}
 
           {overlay.status === 'already_claimed' && overlay.claimedAt && (

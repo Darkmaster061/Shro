@@ -262,7 +262,7 @@ export const BasijPage: React.FC = () => {
               { label: 'کانون تخصصی فعال در چارت', value: toPersianDigits(cadres.length || 25) },
               { label: 'محور اصلی فعالیت', value: toPersianDigits(6) },
               { label: 'کانون‌های نشان‌شده تو', value: toPersianDigits(savedIds.length) },
-              { label: 'اعضای همراه دانشگاه', value: '[نیاز به تکمیل]' },
+              { label: 'اعضای همراه دانشگاه', value: `${toPersianDigits(130)} نفر` },
             ].map((stat) => (
               <div
                 key={stat.label}

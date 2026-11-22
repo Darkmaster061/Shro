@@ -56,6 +56,30 @@ export function generateSessionToken(): string {
 }
 
 /**
+ * استانداردسازی کد روزانه میز استقبال (تبدیل ارقام فارسی/عربی به انگلیسی، حذف فاصله، حروف بزرگ)
+ */
+export function normalizePasscode(raw: string): string {
+  return String(raw || '')
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replace(/\s+/g, '')
+    .trim()
+    .toUpperCase();
+}
+
+/**
+ * بررسی امن کد روزانه میز استقبال (حالت بدون لیست دانشگاه) با مقایسه زمان-ثابت
+ */
+export function verifyWalkinDailyCode(submitted: string, configured: string): boolean {
+  const normSubmitted = normalizePasscode(submitted);
+  const normConfigured = normalizePasscode(configured);
+  if (normConfigured.length < 4 || normSubmitted.length < 4) return false;
+  const subDigest = crypto.createHash('sha256').update(normSubmitted).digest();
+  const cfgDigest = crypto.createHash('sha256').update(normConfigured).digest();
+  return crypto.timingSafeEqual(subDigest, cfgDigest);
+}
+
+/**
  * کپچای خودمیزبان بدون وابستگی خارجی (معمای ریاضی کوتاه با توکن امضاشده HMAC)
  */
 export function createSelfHostedCaptcha(): { token: string; question: string } {

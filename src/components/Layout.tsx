@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
 import {
+  ArrowUp,
   BookOpen,
   Building2,
+  ClipboardCheck,
   Compass,
   Feather,
   HelpCircle,
@@ -10,29 +12,70 @@ import {
   Menu,
   Moon,
   QrCode,
+  Search,
   Shield,
   Sun,
+  Type,
   X,
   Zap,
 } from 'lucide-react';
 import { usePortal } from '../context/PortalContext';
 import { LogoEmblem } from './LogoEmblem';
 import { OfflineIndicator, PWAInstallButton } from './PWAInstallButton';
+import { GlobalQuickFinder } from './GlobalQuickFinder';
 
 const NAV_LINKS = [
   { to: '/guide', label: 'راهنمای نوورود' },
   { to: '/dorms', label: 'خوابگاه‌ها' },
+  { to: '/gallery', label: 'گالری تصاویر' },
   { to: '/basij', label: 'بسیج دانشجویی' },
   { to: '/heyat', label: 'هیئت' },
   { to: '/announcements', label: 'اطلاعیه‌ها' },
 ];
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { settings, theme, toggleTheme, liteMode, toggleLiteMode, toasts, dismissToast } =
-    usePortal();
+  const {
+    settings,
+    theme,
+    toggleTheme,
+    liteMode,
+    toggleLiteMode,
+    largeText,
+    toggleLargeText,
+    openQuickSearch,
+    toasts,
+    dismissToast,
+  } = usePortal();
   const [bannerClosed, setBannerClosed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [scrollProgress, setScrollProgress] = useState(0);
+  const [scrolled, setScrolled] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   const location = useLocation();
+
+  useEffect(() => {
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        const maxScroll = Math.max(
+          1,
+          document.documentElement.scrollHeight - window.innerHeight
+        );
+        const y = window.scrollY;
+        setScrolled(y > 12);
+        setShowScrollTop(y > 560);
+        setScrollProgress(Math.min(1, Math.max(0, y / maxScroll)));
+      });
+    };
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf);
+      window.removeEventListener('scroll', onScroll);
+    };
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen flex flex-col bg-canvas text-ink">
@@ -58,8 +101,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </div>
       )}
 
-      {/* نوار ناوبری بالا — دقیقاً ۳ ناحیه تمیز */}
-      <header className="no-print sticky top-0 z-30 h-14 sm:h-16 border-b border-line bg-canvas/90 backdrop-blur-md">
+      {/* نوار ناوبری بالا — دقیقاً ۳ ناحیه تمیز با نوار پیشرفت اسکرول طلایی */}
+      <header
+        className={`no-print sticky top-0 z-30 h-14 sm:h-16 border-b bg-canvas/90 backdrop-blur-md transition-shadow duration-300 ${
+          scrolled ? 'border-gold/25 shadow-[0_8px_28px_-14px_rgba(0,0,0,0.45)]' : 'border-line'
+        }`}
+      >
         <div className="max-w-7xl mx-auto h-full px-4 sm:px-6 flex items-center justify-between gap-8">
           {/* ناحیه ۱: برند و لوگوها */}
           <Link
@@ -98,8 +145,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           {/* ناحیه ۳: یک دکمه اقدام اصلی + دکمه منوی موبایل */}
           <div className="flex items-center gap-2 shrink-0">
             <Link
-              to="/heyat#coupon"
-              className="hidden sm:inline-flex items-center gap-2 px-4 py-2 min-h-[40px] rounded-xl bg-gold text-[#071714] hover:bg-gold-strong text-xs sm:text-sm font-bold transition-colors whitespace-nowrap shrink-0"
+              to="/coupon"
+              className="btn-sheen hidden sm:inline-flex items-center gap-2 px-4 py-2 min-h-[40px] rounded-xl bg-gold text-[#071714] hover:bg-gold-strong text-xs sm:text-sm font-bold whitespace-nowrap shrink-0"
             >
               <QrCode className="w-4 h-4 shrink-0" />
               <span>ژتون صبحانه</span>
@@ -114,6 +161,17 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <Menu className="w-5 h-5" />
             </button>
           </div>
+        </div>
+
+        {/* نوار پیشرفت اسکرول طلایی (Compositor-only) */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-0 inset-x-0 h-[2px] bg-transparent overflow-hidden"
+        >
+          <div
+            className="h-full w-full bg-gradient-to-l from-gold via-gold-strong to-emerald-mid origin-right transition-transform duration-75"
+            style={{ transform: `scaleX(${scrollProgress})` }}
+          />
         </div>
       </header>
 
@@ -143,7 +201,19 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </button>
               </div>
 
-              <nav className="mt-4 flex flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  openQuickSearch();
+                }}
+                className="mt-4 w-full min-h-[44px] px-3.5 rounded-xl border border-gold/40 bg-gold-soft/45 text-sm font-bold text-gold flex items-center gap-2.5 cursor-pointer"
+              >
+                <Search className="w-4 h-4 shrink-0" />
+                <span>جستجوی سریع در کل پرتال...</span>
+              </button>
+
+              <nav className="mt-3 flex flex-col gap-1.5">
                 <Link
                   to="/"
                   onClick={() => setMobileMenuOpen(false)}
@@ -162,11 +232,25 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                   </Link>
                 ))}
                 <Link
+                  to="/coupon"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3.5 py-2.5 rounded-xl text-sm font-bold text-gold hover:bg-surface-elevated"
+                >
+                  دریافت ژتون صبحانه
+                </Link>
+                <Link
                   to="/contact"
                   onClick={() => setMobileMenuOpen(false)}
                   className="px-3.5 py-2.5 rounded-xl text-sm font-medium text-ink hover:bg-surface-elevated"
                 >
                   تماس با ما
+                </Link>
+                <Link
+                  to="/desk"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="px-3.5 py-2.5 rounded-xl text-sm font-medium text-ink-muted hover:bg-surface-elevated"
+                >
+                  میز استقبال لابی (ثبت ۴۰۵)
                 </Link>
                 <Link
                   to="/scanner"
@@ -188,8 +272,17 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <div className="pt-4 border-t border-line space-y-2.5">
               <button
                 type="button"
+                data-testid="mobile-large-text-btn"
+                onClick={toggleLargeText}
+                className="w-full min-h-[44px] px-3.5 rounded-xl border border-line bg-canvas text-sm text-ink flex items-center justify-between cursor-pointer"
+              >
+                <span>اندازه متن: {largeText ? 'درشت‌تر' : 'عادی'}</span>
+                <Type className="w-4 h-4 text-gold" />
+              </button>
+              <button
+                type="button"
                 onClick={toggleTheme}
-                className="w-full min-h-[44px] px-3.5 rounded-xl border border-line bg-canvas text-sm text-ink flex items-center justify-between"
+                className="w-full min-h-[44px] px-3.5 rounded-xl border border-line bg-canvas text-sm text-ink flex items-center justify-between cursor-pointer"
               >
                 <span>{theme === 'dark' ? 'حالت روشن' : 'حالت تاریک'}</span>
                 {theme === 'dark' ? <Sun className="w-4 h-4 text-gold" /> : <Moon className="w-4 h-4 text-gold" />}
@@ -197,7 +290,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <button
                 type="button"
                 onClick={toggleLiteMode}
-                className="w-full min-h-[44px] px-3.5 rounded-xl border border-line bg-canvas text-sm text-ink flex items-center justify-between"
+                className="w-full min-h-[44px] px-3.5 rounded-xl border border-line bg-canvas text-sm text-ink flex items-center justify-between cursor-pointer"
               >
                 <span>حالت کم‌حجم: {liteMode ? 'روشن' : 'خاموش'}</span>
                 <Zap className="w-4 h-4 text-gold" />
@@ -225,7 +318,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </div>
               </div>
               <p className="text-sm text-ink-muted leading-relaxed">
-                بسیج دانشجویی و هیئت دانشجویی مجتمع آموزش عالی گناباد — همراه شما از نخستین روز ثبت‌نام و سکونت در دانشگاه.
+                بسیج دانشجویی (حوزه شهید شوریده) و هیئت دانشجویی محبان‌الحسین (ع) مجتمع آموزش عالی گناباد — همراه شما از نخستین روز ثبت‌نام و سکونت در دانشگاه.
               </p>
 
               {/* تنظیمات نمایش و نصب اپلیکیشن */}
@@ -237,6 +330,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 >
                   {theme === 'dark' ? <Sun className="w-4 h-4 text-gold" /> : <Moon className="w-4 h-4 text-gold" />}
                   <span>{theme === 'dark' ? 'تم روشن' : 'تم تاریک'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleLargeText}
+                  className="min-h-[38px] px-3.5 rounded-xl border border-line bg-canvas hover:border-gold/50 text-xs font-medium text-ink inline-flex items-center gap-2 cursor-pointer"
+                >
+                  <Type className="w-4 h-4 text-gold" />
+                  <span>{largeText ? 'متن درشت: فعال' : 'درشت‌نمایی متن'}</span>
                 </button>
                 <button
                   type="button"
@@ -255,8 +356,10 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
               <ul className="space-y-2 text-sm text-ink-muted">
                 <li><Link to="/guide" className="hover:text-gold transition-colors">راهنمای ثبت‌نام و FAQ</Link></li>
                 <li><Link to="/dorms" className="hover:text-gold transition-colors">خوابگاه‌ها و مقایسه</Link></li>
+                <li><Link to="/gallery" className="hover:text-gold transition-colors">گالری تصاویر دانشگاه</Link></li>
                 <li><Link to="/basij" className="hover:text-gold transition-colors">بسیج دانشجویی و کانون‌ها</Link></li>
-                <li><Link to="/heyat#coupon" className="hover:text-gold transition-colors">دریافت ژتون صبحانه</Link></li>
+                <li><Link to="/heyat" className="hover:text-gold transition-colors">هیئت دانشجویی محبان‌الحسین (ع)</Link></li>
+                <li><Link to="/coupon" className="hover:text-gold transition-colors">دریافت ژتون صبحانه</Link></li>
                 <li><Link to="/contact" className="hover:text-gold transition-colors">تماس با ما</Link></li>
               </ul>
             </div>
@@ -281,12 +384,12 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 </a>
                 {settings.heyatTelegramUrl && (
                   <a href={settings.heyatTelegramUrl} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">
-                    تلگرام هیئت
+                    تلگرام هیئت محبان‌الحسین (ع)
                   </a>
                 )}
                 {settings.heyatEitaaUrl && (
                   <a href={settings.heyatEitaaUrl} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">
-                    ایتا هیئت
+                    ایتا هیئت محبان‌الحسین (ع)
                   </a>
                 )}
               </div>
@@ -294,8 +397,15 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </div>
 
           <div className="mt-8 pt-5 border-t border-line flex flex-wrap items-center justify-between gap-4 text-xs text-ink-muted">
-            <p>بسیج دانشجویی (حوزه شهید شوریده) و هیئت محبان‌الحسین (ع) مجتمع آموزش عالی گناباد</p>
-            <div className="flex items-center gap-4">
+            <p>
+              بسیج دانشجویی (حوزه شهید شوریده) و هیئت دانشجویی محبان‌الحسین (ع) مجتمع آموزش عالی گناباد
+            </p>
+            <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+              <Link to="/desk" className="hover:text-ink inline-flex items-center gap-1">
+                <ClipboardCheck className="w-3.5 h-3.5" />
+                <span>میز استقبال (ثبت ۴۰۵)</span>
+              </Link>
+              <span aria-hidden="true">·</span>
               <Link to="/scanner" className="hover:text-ink inline-flex items-center gap-1">
                 <QrCode className="w-3.5 h-3.5" />
                 <span>اسکنر پخش صبحانه</span>
@@ -322,34 +432,48 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </Link>
       )}
 
-      {/* نوار ناوبری پایین موبایل با فضای عمودی کافی برای خوانایی کامل حروف فارسی */}
+      {/* نوار ناوبری پایین موبایل — ۶ بخش اصلی شامل هیئت و ژتون با خوانایی کامل فارسی */}
       <nav
         aria-label="ناوبری سریع موبایل"
-        className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-30 min-h-[62px] py-1.5 border-t border-line bg-surface/95 backdrop-blur-md grid grid-cols-5 items-center"
+        className="no-print lg:hidden fixed bottom-0 left-0 right-0 z-30 min-h-[62px] py-1.5 px-1 border-t border-line bg-surface/95 backdrop-blur-md grid grid-cols-6 items-center"
       >
         {[
           { to: '/', label: 'خانه', icon: Home },
           { to: '/guide', label: 'راهنما', icon: BookOpen },
           { to: '/dorms', label: 'خوابگاه', icon: Building2 },
           { to: '/basij', label: 'بسیج', icon: Compass },
-          { to: '/heyat', label: 'ژتون', icon: Feather },
+          { to: '/heyat', label: 'هیئت', icon: Feather },
+          { to: '/coupon', label: 'ژتون', icon: QrCode },
         ].map(({ to, label, icon: Icon }) => {
           const active = to === '/' ? location.pathname === '/' : location.pathname.startsWith(to);
           return (
             <Link
               key={to}
               to={to}
-              className={`flex flex-col items-center justify-center py-0.5 text-[11px] leading-tight font-medium transition-colors ${
+              className={`flex flex-col items-center justify-center py-0.5 text-[10.5px] leading-tight font-medium whitespace-nowrap transition-colors ${
                 active ? 'text-gold font-bold' : 'text-ink-muted'
               }`}
             >
-              <Icon className="w-[19px] h-[19px] shrink-0" />
+              <Icon className="w-[18px] h-[18px] shrink-0" />
               <span className="mt-1">{label}</span>
             </Link>
           );
         })}
       </nav>
 
+      {/* دکمه بازگشت سریع به بالای صفحه (فقط بعد از اسکرول طولانی) */}
+      {showScrollTop && (
+        <button
+          type="button"
+          aria-label="بازگشت به بالای صفحه"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          className="no-print fixed bottom-20 lg:bottom-20 left-4 lg:left-5 z-30 min-h-[44px] min-w-[44px] rounded-full border border-gold/45 bg-surface/95 text-gold shadow-lg backdrop-blur-md flex items-center justify-center hover:bg-gold hover:text-[#071714] transition-colors cursor-pointer"
+        >
+          <ArrowUp className="w-4 h-4" />
+        </button>
+      )}
+
+      <GlobalQuickFinder />
       <OfflineIndicator />
 
       {/* اعلان‌های Toast */}

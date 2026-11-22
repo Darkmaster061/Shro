@@ -29,7 +29,7 @@ export const LogoEmblem: React.FC<LogoEmblemProps> = ({
   if (src && !failed) {
     return (
       <div
-        className={`${SIZE_MAP[size]} rounded-2xl overflow-hidden border border-line bg-surface flex items-center justify-center shrink-0 p-1 ${className}`}
+        className={`${SIZE_MAP[size]} rounded-2xl overflow-hidden border border-gold/35 bg-[#fcfbf8] flex items-center justify-center shrink-0 p-1 shadow-sm ${className}`}
       >
         <img
           src={src}

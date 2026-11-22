@@ -1,56 +1,37 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
+  ArrowLeft,
   Bus,
   CalendarPlus,
   CheckCircle2,
   Clock,
-  Download,
+  Coffee,
   ExternalLink,
   History,
   MapPin,
-  Printer,
   QrCode,
-  RefreshCw,
   Send,
-  ShieldCheck,
   Users,
 } from 'lucide-react';
-import QRCode from 'qrcode';
 import { api } from '../api/client';
 import { usePortal } from '../context/PortalContext';
 import { LogoEmblem } from '../components/LogoEmblem';
-import { JalaliDatePicker } from '../components/JalaliDatePicker';
 import { GeometricLatticeBg } from '../components/GeometricLatticeBg';
 import { HeyatAudioPlayer } from '../components/HeyatAudioPlayer';
+import { FatemiyehReportSection } from '../components/FatemiyehReportSection';
+import { HeyatArchiveAndTeamsSection } from '../components/HeyatArchiveAndTeamsSection';
 import { HEYAT_OFFICIAL_INFO, HEYAT_WEEKLY_SCHEDULE } from '../data/orientation';
 import { buildIcsContent, getCountdownParts } from '../utils/jalali';
 import { toPersianDigits } from '../utils/persian';
-import type { CouponLookupResult, HeyatProgram } from '../types/portal';
+import type { HeyatProgram } from '../types/portal';
 
-const COUPON_CACHE_KEY = 'gonabad_cached_coupon_card';
 const PROGRAM_CATS = ['همه', 'صبحانه', 'هفتگی', 'مناسبتی', 'فرهنگی'] as const;
 
 export const HeyatPage: React.FC = () => {
-  const { settings, showToast } = usePortal();
+  const { settings } = usePortal();
   const [programs, setPrograms] = useState<HeyatProgram[]>([]);
   const [catFilter, setCatFilter] = useState<(typeof PROGRAM_CATS)[number]>('همه');
-
-  // فرم دریافت ژتون صبحانه
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [birthJalali, setBirthJalali] = useState('1387/05/20');
-  const [honeypot, setHoneypot] = useState('');
-  const [loadingCoupon, setLoadingCoupon] = useState(false);
-  const [couponError, setCouponError] = useState('');
-  const [coupon, setCoupon] = useState<CouponLookupResult | null>(() => {
-    try {
-      const cached = localStorage.getItem(COUPON_CACHE_KEY);
-      return cached ? JSON.parse(cached) : null;
-    } catch {
-      return null;
-    }
-  });
-  const [qrDataUrl, setQrDataUrl] = useState('');
 
   const [nextCountdown, setNextCountdown] = useState(() =>
     getCountdownParts(settings.targetEventDateIso)
@@ -93,104 +74,6 @@ export const HeyatPage: React.FC = () => {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [countdownTargetIso]);
-
-  // تولید محلی QR (بدون هیچ درخواست خارجی)
-  useEffect(() => {
-    if (!coupon?.couponCode) {
-      setQrDataUrl('');
-      return;
-    }
-    QRCode.toDataURL(coupon.couponCode, {
-      width: 320,
-      margin: 2,
-      color: { dark: '#071714', light: '#ffffff' },
-    })
-      .then(setQrDataUrl)
-      .catch(() => {});
-  }, [coupon?.couponCode]);
-
-  const handleLookup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCouponError('');
-    setLoadingCoupon(true);
-    try {
-      const result = await api.lookupCoupon({
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        birthJalali,
-        website: honeypot,
-      });
-      setCoupon(result);
-      localStorage.setItem(COUPON_CACHE_KEY, JSON.stringify(result));
-      showToast('کارت ژتون صبحانه آماده شد و برای نمایش آفلاین روی گوشی ذخیره گردید.', 'success');
-    } catch (err) {
-      setCouponError(
-        err instanceof Error ? err.message : 'اطلاعات یافت نشد، با مسئول هیئت تماس بگیر.'
-      );
-    } finally {
-      setLoadingCoupon(false);
-    }
-  };
-
-  // ذخیره تصویر کارت ژتون به صورت PNG (آفلاین با Canvas)
-  const handleDownloadCard = async () => {
-    if (!coupon || !qrDataUrl) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = 720;
-    canvas.height = 960;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    // پس‌زمینه زمردی تیره و کادر طلایی
-    ctx.fillStyle = '#071714';
-    ctx.fillRect(0, 0, 720, 960);
-    ctx.strokeStyle = '#deb154';
-    ctx.lineWidth = 6;
-    ctx.strokeRect(24, 24, 672, 912);
-
-    ctx.fillStyle = '#deb154';
-    ctx.font = 'bold 28px Vazirmatn, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('کارت دیجیتال ژتون صبحانه نوورودی‌ها', 360, 100);
-
-    ctx.fillStyle = '#a6bab4';
-    ctx.font = '20px Vazirmatn, sans-serif';
-    ctx.fillText(settings.universityName, 360, 142);
-
-    ctx.fillStyle = '#f4f1e8';
-    ctx.font = 'bold 38px Vazirmatn, sans-serif';
-    ctx.fillText(`${coupon.firstName} ${coupon.lastName}`, 360, 224);
-
-    if (coupon.note) {
-      ctx.fillStyle = '#a6bab4';
-      ctx.font = '20px Vazirmatn, sans-serif';
-      ctx.fillText(coupon.note, 360, 268);
-    }
-
-    const img = new Image();
-    img.src = qrDataUrl;
-    await new Promise((resolve) => {
-      img.onload = resolve;
-    });
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(190, 315, 340, 340);
-    ctx.drawImage(img, 200, 325, 320, 320);
-
-    ctx.fillStyle = '#deb154';
-    ctx.font = 'bold 20px monospace';
-    ctx.fillText(coupon.couponCode, 360, 710);
-
-    ctx.fillStyle = '#a6bab4';
-    ctx.font = '18px Vazirmatn, sans-serif';
-    ctx.fillText('سهمیه یک‌نوبته: این کارت فقط در روز ثبت‌نام شما (یک بار در کل روزها) معتبر است.', 360, 815);
-    ctx.fillText(HEYAT_OFFICIAL_INFO.officialName, 360, 860);
-
-    const link = document.createElement('a');
-    link.download = `breakfast-coupon-${coupon.lastName}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-    showToast('تصویر کارت ژتون ذخیره شد.', 'success');
-  };
 
   const downloadProgramIcs = (p: HeyatProgram) => {
     const ics = buildIcsContent({
@@ -238,13 +121,42 @@ export const HeyatPage: React.FC = () => {
                   هیئت دانشجویی محبان‌الحسین{'\u00A0'}(ع)
                 </h1>
                 <p className="text-sm font-semibold text-ink-muted mt-0.5">
-                  برنامه‌های معنوی، قرارهای هفتگی و سامانه ژتون صبحانه
+                  آغاز فعالیت مستمر از سال {HEYAT_OFFICIAL_INFO.foundedYear} · برنامه‌های معنوی، قرارهای هفتگی و سامانه ژتون صبحانه
                 </p>
               </div>
             </div>
-            <p className="text-sm sm:text-base text-ink-muted leading-relaxed">
-              {settings.heyatIntroText}
-            </p>
+            <div className="space-y-2.5 text-sm sm:text-base text-ink-muted leading-relaxed">
+              {(settings.heyatIntroText
+                ? settings.heyatIntroText.split(/\n{2,}/).filter((p) => p.trim())
+                : [...HEYAT_OFFICIAL_INFO.biographyParagraphs]
+              ).map((paragraph, idx, arr) => (
+                <p
+                  key={idx}
+                  className={
+                    idx === arr.length - 1
+                      ? 'text-ink font-semibold pt-1'
+                      : undefined
+                  }
+                >
+                  {paragraph}
+                </p>
+              ))}
+            </div>
+
+            <div className="pt-1">
+              <p className="text-xs font-bold text-gold mb-2">
+                برخی از برنامه‌های شاخص هیئت از سال {HEYAT_OFFICIAL_INFO.foundedYear} تا امروز:
+              </p>
+              <ul className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs text-ink-muted">
+                {HEYAT_OFFICIAL_INFO.signaturePrograms.map((item) => (
+                  <li key={item} className="flex items-start gap-2">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-gold shrink-0 mt-0.5" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
             <blockquote className="border-r-2 border-gold/70 pr-3.5 text-xs sm:text-sm text-ink/90 italic">
               {HEYAT_OFFICIAL_INFO.motto}
             </blockquote>
@@ -264,12 +176,19 @@ export const HeyatPage: React.FC = () => {
               </span>
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
-            <a
-              href="#coupon"
+            <Link
+              to="/coupon"
               className="min-h-[44px] px-5 rounded-xl border border-gold/50 bg-gold-soft hover:bg-gold hover:text-[#071714] text-ink font-bold text-xs inline-flex items-center justify-center gap-2 transition-colors"
             >
               <QrCode className="w-4 h-4" />
-              <span>دریافت سریع ژتون صبحانه نوورودی‌ها</span>
+              <span>ورود به صفحه اختصاصی ژتون صبحانه</span>
+            </Link>
+            <a
+              href="#fatemiyeh-report"
+              className="min-h-[42px] px-5 rounded-xl border border-line bg-canvas hover:border-gold/50 text-ink font-semibold text-xs inline-flex items-center justify-center gap-2 transition-colors"
+            >
+              <History className="w-4 h-4 text-gold" />
+              <span>گزارش تصویری و مستند پنج شب فاطمیه</span>
             </a>
           </div>
         </div>
@@ -366,252 +285,49 @@ export const HeyatPage: React.FC = () => {
         </div>
       </section>
 
-      {/* سامانه دریافت کارت ژتون صبحانه */}
+      {/* دعوت‌نامه ورود به صفحه اختصاصی سامانه ژتون صبحانه */}
       <section
         id="coupon"
-        aria-labelledby="coupon-heading"
-        className="scroll-mt-20 rounded-3xl border border-gold/35 bg-surface p-6 sm:p-8"
+        aria-labelledby="coupon-link-heading"
+        className="scroll-mt-20 relative overflow-hidden rounded-3xl border border-gold/40 bg-gradient-to-l from-emerald-deep/95 via-emerald-deep/85 to-[#0b2520] text-[#f4f1e8] p-6 sm:p-9 shadow-[var(--shadow-card)]"
       >
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* فرم استعلام */}
-          <div className="lg:col-span-6 space-y-5">
-            <div>
-              <p className="text-xs font-semibold text-gold mb-1 inline-flex items-center gap-1.5">
-                <QrCode className="w-4 h-4" />
-                <span>ویژه نوورودی‌های ثبت‌شده</span>
-              </p>
-              <h2 id="coupon-heading" className="text-xl sm:text-2xl font-bold text-ink">
-                دریافت کارت دیجیتال ژتون صبحانه
-              </h2>
-              <p className="mt-1.5 text-sm text-ink-muted leading-relaxed">
-                نام، نام‌خانوادگی و تاریخ تولد شمسی خود را وارد کن تا کارت QR اختصاصی تو نمایش داده شود. پس از اولین دریافت، کارت به‌صورت آفلاین روی گوشی ذخیره می‌ماند.
-              </p>
-              <p className="mt-2 text-xs text-gold font-semibold bg-gold-soft/45 border border-gold/25 rounded-xl px-3 py-2">
-                نکته مهم: سهمیه صبحانه هر نوورودی در کل روزهای ثبت‌نام فقط یک نوبت و صرفاً در روز ثبت‌نام خودتان است (در صورت دریافت در روز اول، در روزهای بعد امکان دریافت مجدد وجود ندارد).
-              </p>
-            </div>
-
-            <form onSubmit={handleLookup} className="space-y-4">
-              {/* honeypot */}
-              <input
-                type="text"
-                name="website"
-                value={honeypot}
-                onChange={(e) => setHoneypot(e.target.value)}
-                tabIndex={-1}
-                autoComplete="off"
-                className="hidden"
-              />
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label htmlFor="coupon-first" className="block text-xs font-medium text-ink-muted mb-1.5">
-                    نام
-                  </label>
-                  <input
-                    id="coupon-first"
-                    type="text"
-                    required
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="مثلاً: علی"
-                    className="w-full min-h-[44px] rounded-xl border border-line bg-canvas px-3.5 text-sm text-ink"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="coupon-last" className="block text-xs font-medium text-ink-muted mb-1.5">
-                    نام‌خانوادگی
-                  </label>
-                  <input
-                    id="coupon-last"
-                    type="text"
-                    required
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    placeholder="مثلاً: محمدی"
-                    className="w-full min-h-[44px] rounded-xl border border-line bg-canvas px-3.5 text-sm text-ink"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <span className="block text-xs font-medium text-ink-muted mb-1.5">
-                  تاریخ تولد شمسی
-                </span>
-                <JalaliDatePicker
-                  value={birthJalali}
-                  onChange={setBirthJalali}
-                  idPrefix="coupon-birth"
-                />
-              </div>
-
-              {couponError && (
-                <div
-                  role="alert"
-                  className="rounded-xl border border-red-500/40 bg-red-500/10 p-3.5 text-sm text-red-700 dark:text-red-300"
-                >
-                  {couponError}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={loadingCoupon}
-                className="w-full min-h-[48px] rounded-xl bg-gold text-[#071714] hover:bg-gold-strong font-bold text-sm transition-colors cursor-pointer disabled:opacity-60"
-              >
-                {loadingCoupon ? 'در حال بررسی...' : 'نمایش کارت ژتون صبحانه'}
-              </button>
-
-              <p className="text-xs text-ink-muted flex items-start gap-2">
-                <ShieldCheck className="w-4 h-4 text-gold shrink-0 mt-0.5" />
-                <span>
-                  حریم خصوصی: تاریخ تولد خام در سرور نگهداری نمی‌شود و تنها به صورت هش امن تطبیق داده می‌شود.
-                </span>
-              </p>
-
-              <div className="rounded-xl border border-line bg-canvas p-3 text-xs text-ink-muted">
-                راهنمای تست با داده نمونه: نام «علی»، نام‌خانوادگی «محمدی»، تاریخ تولد «۲۰ مرداد ۱۳۸۷» (پس از ورود لیست واقعی از پنل ادمین حذف می‌شود).
-              </div>
-            </form>
+        <GeometricLatticeBg opacity={0.075} />
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="space-y-3 max-w-2xl">
+            <p className="text-xs font-bold text-[#deb154] inline-flex items-center gap-2">
+              <Coffee className="w-4 h-4" />
+              <span>پذیرایی صبحگاهی نوورودی‌ها · میزبان: هیئت دانشجویی محبان‌الحسین (ع)</span>
+            </p>
+            <h2 id="coupon-link-heading" className="text-xl sm:text-3xl font-extrabold leading-snug">
+              سامانه دریافت کارت دیجیتال ژتون صبحانه در صفحه اختصاصی قرار دارد
+            </h2>
+            <p className="text-sm text-[#dce5e1] leading-relaxed">
+              برای نظم بیشتر در روزهای ثبت‌نام، صفحه دریافت ژتون صبحانه به صورت مستقل طراحی شده است. پس از تایید شماره دانشجویی در میز استقبال لابی، وارد صفحه اختصاصی شو، مشخصاتت را کامل کن و همان لحظه کارت QR صبحانه‌ات را دریافت کن.
+            </p>
           </div>
 
-          {/* نمایش کارت ژتون */}
-          <div className="lg:col-span-6">
-            {coupon ? (
-              <div
-                data-testid="digital-coupon-card"
-                className="rounded-3xl border border-gold/50 bg-emerald-deep text-[#f4f1e8] p-6 sm:p-7 space-y-5 shadow-xl"
-              >
-                <div className="flex items-center justify-between gap-3 border-b border-white/15 pb-4">
-                  <div className="flex items-center gap-3">
-                    <LogoEmblem type="heyat" src={settings.heyatLogoUrl} size="sm" />
-                    <div>
-                      <p className="text-xs text-[#deb154] font-semibold">کارت دیجیتال ژتون صبحانه</p>
-                      <h3 className="text-xl font-extrabold">
-                        {coupon.firstName} {coupon.lastName}
-                      </h3>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      localStorage.removeItem(COUPON_CACHE_KEY);
-                      setCoupon(null);
-                    }}
-                    aria-label="خروج از کارت ذخیره شده"
-                    className="p-2 rounded-lg text-white/70 hover:text-white cursor-pointer"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {coupon.note && (
-                  <p className="text-xs text-white/75">{coupon.note}</p>
-                )}
-
-                <div className="flex flex-col items-center justify-center bg-white rounded-2xl p-4">
-                  {qrDataUrl ? (
-                    <img
-                      src={qrDataUrl}
-                      alt={`کد QR ژتون صبحانه ${coupon.firstName} ${coupon.lastName}`}
-                      className="w-56 h-56 object-contain"
-                    />
-                  ) : (
-                    <div className="w-56 h-56 flex items-center justify-center text-slate-600 text-xs">
-                      در حال ساخت کد QR...
-                    </div>
-                  )}
-                  <span className="mt-2 font-mono text-xs text-slate-700 select-all">
-                    {coupon.couponCode}
-                  </span>
-                </div>
-
-                {/* وضعیت سهمیه یک‌نوبته و وعده‌های فعال */}
-                {(coupon.hasClaimedAny || coupon.claimedMealIds.length > 0) && (
-                  <div className="rounded-xl border border-amber-400/45 bg-amber-500/15 px-3.5 py-2.5 text-xs text-amber-200 leading-relaxed">
-                    <strong>سهمیه صبحانه شما دریافت شده است</strong>
-                    {coupon.claimedMealName ? ` (${coupon.claimedMealName}` : ''}
-                    {coupon.claimedDateJalali ? ` · ${coupon.claimedDateJalali})` : coupon.claimedMealName ? ')' : ''}
-                    {' '}— سهمیه هر نوورودی در کل روزهای ثبت‌نام فقط یک نوبت است.
-                  </div>
-                )}
-
-                {coupon.activeMeals.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs text-[#deb154] font-semibold">
-                      زمان‌بندی وعده‌های صبحانه (سهمیه یک‌نوبته در روز ثبت‌نام):
-                    </p>
-                    <div className="space-y-1.5">
-                      {coupon.activeMeals.map((m) => {
-                        const usedThisMeal = coupon.claimedMealIds.includes(m.id);
-                        const usedAnyDay = Boolean(coupon.hasClaimedAny || coupon.claimedMealIds.length > 0);
-                        return (
-                          <div
-                            key={m.id}
-                            className="rounded-xl bg-white/8 px-3.5 py-2.5 flex items-center justify-between text-xs"
-                          >
-                            <div>
-                              <span className="font-semibold block">{m.name}</span>
-                              <span className="text-white/70 tabular-nums">
-                                {m.dateJalali} · {m.startTime} تا {m.endTime}
-                              </span>
-                            </div>
-                            <span
-                              className={`font-semibold inline-flex items-center gap-1 ${
-                                usedThisMeal
-                                  ? 'text-amber-300'
-                                  : usedAnyDay
-                                  ? 'text-white/55'
-                                  : 'text-emerald-300'
-                              }`}
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              {usedThisMeal
-                                ? 'دریافت شده'
-                                : usedAnyDay
-                                ? 'سهمیه مصرف شده'
-                                : 'قابل استفاده در روز ثبت‌نام'}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                <div className="no-print flex flex-wrap gap-2.5 pt-2">
-                  <button
-                    type="button"
-                    onClick={handleDownloadCard}
-                    className="flex-1 min-h-[44px] px-4 rounded-xl bg-[#deb154] text-[#071714] hover:bg-[#f0c76f] font-bold text-xs inline-flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>ذخیره تصویر کارت</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => window.print()}
-                    className="min-h-[44px] px-4 rounded-xl border border-white/25 hover:border-white/50 text-xs font-semibold inline-flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <Printer className="w-4 h-4" />
-                    <span>چاپ</span>
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="h-full min-h-[340px] rounded-3xl border border-dashed border-line bg-canvas p-8 flex flex-col items-center justify-center text-center space-y-3">
-                <div className="w-16 h-16 rounded-2xl bg-gold-soft text-gold flex items-center justify-center">
-                  <QrCode className="w-8 h-8" />
-                </div>
-                <h3 className="text-lg font-bold text-ink">کارت ژتون دیجیتال تو اینجا نمایش داده می‌شود</h3>
-                <p className="text-sm text-ink-muted max-w-sm">
-                  اطلاعاتت را در فرم مقابل وارد کن تا QR اختصاصی تو ساخته شود و بدون نیاز به اینترنت هم همیشه همراهت باشد.
-                </p>
-              </div>
-            )}
+          <div className="shrink-0 flex flex-col sm:flex-row lg:flex-col gap-2.5">
+            <Link
+              to="/coupon"
+              data-testid="heyat-to-coupon-cta"
+              className="btn-sheen min-h-[52px] px-6 rounded-2xl bg-[#deb154] hover:bg-[#f0c76f] text-[#071714] font-extrabold text-sm inline-flex items-center justify-center gap-2.5 shadow-lg transition-colors"
+            >
+              <QrCode className="w-5 h-5 shrink-0" />
+              <span>ورود به صفحه ژتون صبحانه</span>
+              <ArrowLeft className="w-4 h-4 shrink-0" />
+            </Link>
+            <span className="text-[11px] text-center text-[#c5d5cf]">
+              سهمیه یک‌نوبته در روز ثبت‌نام · ذخیره آفلاین روی گوشی
+            </span>
           </div>
         </div>
       </section>
+
+      {/* گزارش تصویری و مستند پنج شب عزاداری ایام فاطمیه */}
+      <FatemiyehReportSection />
+
+      {/* آرشیو ۳۱ تصویر برنامه‌های هیئت + ۱۰ تیم و بخش اجرایی */}
+      <HeyatArchiveAndTeamsSection channelUrl={heyatChannelUrl} />
 
       {/* پخش‌کننده صوتی بومی با موج صوتی (Waveform) */}
       <HeyatAudioPlayer />

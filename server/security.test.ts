@@ -6,6 +6,7 @@ import {
   detectSafeFileType,
   createSelfHostedCaptcha,
   verifySelfHostedCaptcha,
+  verifyWalkinDailyCode,
 } from './security';
 
 test('sanitizeSafeUrl allows safe http/https and relative paths, and blocks dangerous schemes', () => {
@@ -60,4 +61,12 @@ test('self-hosted captcha verifies valid answer and rejects wrong or tampered to
   assert.equal(verifySelfHostedCaptcha(cap.token, String(sum)), true);
   assert.equal(verifySelfHostedCaptcha(cap.token, String(sum + 1)), false);
   assert.equal(verifySelfHostedCaptcha(cap.token + 'tamper', String(sum)), false);
+});
+
+test('verifyWalkinDailyCode normalizes Persian digits/case and rejects weak or mismatched codes', () => {
+  assert.equal(verifyWalkinDailyCode('۱۴۰۵', '1405'), true);
+  assert.equal(verifyWalkinDailyCode('  salam ۱۴۰۵ ', 'SALAM1405'), true);
+  assert.equal(verifyWalkinDailyCode('1406', '1405'), false);
+  assert.equal(verifyWalkinDailyCode('123', '123'), false);
+  assert.equal(verifyWalkinDailyCode('', ''), false);
 });

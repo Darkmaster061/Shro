@@ -42,22 +42,27 @@ export const WelcomeGate: React.FC = () => {
       aria-labelledby="welcome-gate-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-canvas/95 dark:bg-[#040d0c]/95 backdrop-blur-xl p-4 overflow-y-auto"
     >
-      <div className="w-full max-w-3xl rounded-3xl glass-panel p-6 sm:p-8 my-auto">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none fixed inset-0 opacity-20 dark:opacity-30 bg-cover bg-center"
+        style={{ backgroundImage: 'url(/assets/hero-gonabad-arch.webp)' }}
+      />
+      <div className="relative z-10 w-full max-w-3xl rounded-3xl glass-panel gold-top-accent p-6 sm:p-8 my-auto">
         <div className="flex flex-col items-center text-center">
           <div className="flex items-center gap-4 mb-5">
             <LogoEmblem type="basij" src={settings.basijLogoUrl} size="md" />
-            <span className="h-8 w-px bg-line" aria-hidden="true" />
+            <span className="h-8 w-px bg-gold/40" aria-hidden="true" />
             <LogoEmblem type="heyat" src={settings.heyatLogoUrl} size="md" />
           </div>
 
-          <p className="text-xs font-medium text-gold mb-2">
-            {settings.universityName}
+          <p className="text-xs font-bold text-gold mb-2">
+            {settings.universityName} · ورودی ۱۴۰۵
           </p>
           <h1
             id="welcome-gate-title"
-            className="text-2xl sm:text-3xl font-bold text-ink leading-snug"
+            className="text-2xl sm:text-3xl font-extrabold text-ink leading-snug"
           >
-            به خانواده دانشجویی خوش آمدی
+            به خانواده دانشجویی <span className="text-gold-shimmer">خوش آمدی</span>
           </h1>
           <p className="mt-3 text-sm sm:text-base text-ink-muted max-w-xl">
             لطفاً عضو هر دو کانال اطلاع‌رسانی شو تا اطلاعیه‌های ثبت‌نام، خوابگاه، کانون‌ها و زمان‌بندی صبحانه از دستت نرود.

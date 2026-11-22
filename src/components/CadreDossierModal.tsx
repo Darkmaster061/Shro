@@ -1,14 +1,16 @@
 import React, { useEffect } from 'react';
 import {
   Bookmark,
-  Calendar,
+  Building2,
   ExternalLink,
   Layers,
-  MessageCircle,
+  MapPin,
+  Send,
   UserCheck,
   X,
 } from 'lucide-react';
 import { getAxisMeta } from '../data/basijVisuals';
+import { BASIJ_OFFICIAL_INFO } from '../data/orientation';
 import { AxisIcon } from './BasijOrgChart';
 import { GeometricLatticeBg } from './GeometricLatticeBg';
 import { toPersianDigits } from '../utils/persian';
@@ -173,44 +175,73 @@ export const CadreDossierModal: React.FC<CadreDossierModalProps> = ({
             </div>
           )}
 
-          {/* اطلاعات اجرایی مجتمع آموزش عالی گناباد */}
-          <div className="rounded-2xl border border-line bg-canvas p-4 sm:p-5 grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+          {/* راه‌های رسمی عضویت در کانون (بسیج دانشجویی دانشگاه گناباد) */}
+          <div className="rounded-2xl border border-gold/30 bg-canvas p-4 sm:p-5 space-y-3.5 text-xs">
             <div className="space-y-1">
-              <p className="text-ink-muted inline-flex items-center gap-1.5">
-                <UserCheck className="w-3.5 h-3.5 text-gold" />
-                <span>دبیر / مسئول در دانشگاه</span>
+              <p className="font-bold text-gold inline-flex items-center gap-1.5 text-xs sm:text-sm">
+                <UserCheck className="w-4 h-4 shrink-0" />
+                <span>راه‌های عضویت در این کانون — کانال رسمی حوزه بسیج دانشجویی دانشگاه گناباد</span>
               </p>
-              <p className="font-semibold text-ink">{cadre.leadName}</p>
+              <p className="text-ink-muted leading-relaxed">
+                برای عضویت در <strong className="text-ink">{cadre.name}</strong> می‌توانید به آیدی ادمین‌های رسمی پیام دهید، یا به‌صورت حضوری در روزهای ثبت‌نام به میز بسیج و در طول ترم به پایگاه مراجعه کنید:
+              </p>
             </div>
-            <div className="space-y-1">
-              <p className="text-ink-muted inline-flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-gold" />
-                <span>زمان جلسات هفتگی</span>
-              </p>
-              <p className="font-semibold text-ink">{cadre.meetingSchedule}</p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <a
+                href={BASIJ_OFFICIAL_INFO.brothersAdminUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[44px] rounded-xl border border-gold/35 bg-surface hover:border-gold px-3.5 py-2.5 flex items-center justify-between gap-2 transition-colors"
+              >
+                <span className="inline-flex items-center gap-1.5 font-bold text-ink">
+                  <Send className="w-3.5 h-3.5 text-gold shrink-0" />
+                  <span>ادمین برادران</span>
+                </span>
+                <span dir="ltr" className="font-mono font-bold text-gold">
+                  {BASIJ_OFFICIAL_INFO.brothersAdminHandle}
+                </span>
+              </a>
+
+              <a
+                href={BASIJ_OFFICIAL_INFO.sistersAdminUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[44px] rounded-xl border border-gold/35 bg-surface hover:border-gold px-3.5 py-2.5 flex items-center justify-between gap-2 transition-colors"
+              >
+                <span className="inline-flex items-center gap-1.5 font-bold text-ink">
+                  <Send className="w-3.5 h-3.5 text-gold shrink-0" />
+                  <span>ادمین خواهران</span>
+                </span>
+                <span dir="ltr" className="font-mono font-bold text-gold">
+                  {BASIJ_OFFICIAL_INFO.sistersAdminHandle}
+                </span>
+              </a>
             </div>
-            <div className="space-y-1">
-              <p className="text-ink-muted inline-flex items-center gap-1.5">
-                <MessageCircle className="w-3.5 h-3.5 text-gold" />
-                <span>راه ارتباطی</span>
+
+            <div className="pt-2 border-t border-line/80 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11.5px] text-ink-muted">
+              <p className="flex items-start gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-gold shrink-0 mt-0.5" />
+                <span>مراجعه حضوری به <strong className="text-ink">میز استقبال بسیج دانشجویی</strong> در روزهای ثبت‌نام</span>
               </p>
-              <p className="font-semibold text-ink">{cadre.contactInfo}</p>
+              <p className="flex items-start gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-gold shrink-0 mt-0.5" />
+                <span>مراجعه به <strong className="text-ink">پایگاه بسیج دانشجویی</strong> در طول ترم تحصیلی</span>
+              </p>
             </div>
           </div>
 
           {/* دکمه‌های اقدام */}
           <div className="flex flex-wrap items-center gap-3 pt-1">
-            {cadre.joinLink && (
-              <a
-                href={cadre.joinLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex-1 min-h-[46px] px-5 rounded-xl bg-gold text-[#071714] hover:bg-gold-strong font-bold text-sm inline-flex items-center justify-center gap-2 transition-colors"
-              >
-                <span>درخواست عضویت در این کانون</span>
-                <ExternalLink className="w-4 h-4" />
-              </a>
-            )}
+            <a
+              href={BASIJ_OFFICIAL_INFO.telegramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 min-h-[46px] px-5 rounded-xl bg-gold text-[#071714] hover:bg-gold-strong font-bold text-sm inline-flex items-center justify-center gap-2 transition-colors"
+            >
+              <span>کانال رسمی بسیج ({BASIJ_OFFICIAL_INFO.telegramHandle})</span>
+              <ExternalLink className="w-4 h-4" />
+            </a>
             <button
               type="button"
               onClick={onClose}

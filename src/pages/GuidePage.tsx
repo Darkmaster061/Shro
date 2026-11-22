@@ -6,6 +6,8 @@ import {
   CalendarDays,
   Check,
   ChevronDown,
+  CreditCard,
+  Expand,
   ExternalLink,
   FileText,
   GraduationCap,
@@ -16,6 +18,7 @@ import {
   RefreshCw,
   Search,
   Send,
+  ShieldAlert,
   Sparkles,
   Stethoscope,
   ThumbsDown,
@@ -36,11 +39,14 @@ import {
   OFFICIAL_WELLNESS_SERVICES,
   REGISTRATION_CHECKLIST,
   REGISTRATION_GUIDE_VIDEO,
+  REGISTRATION_HALL_NOTICES,
   REGISTRATION_ONSITE_STEPS,
   REGISTRATION_TIMELINE,
   REQUIRED_DOCUMENTS,
 } from '../data/orientation';
 import { CampusMapSvg } from '../components/CampusMapSvg';
+import { PhotoLightbox } from '../components/PhotoLightbox';
+import type { CampusPhoto } from '../data/campusGallery';
 import { normalizePersian, searchFaqs, toPersianDigits } from '../utils/persian';
 import { resolveActiveOnsiteStep } from '../utils/videoSteps';
 import type { FaqItem } from '../types/portal';
@@ -62,6 +68,21 @@ export const GuidePage: React.FC = () => {
   const [majorQuery, setMajorQuery] = useState('');
   const [selectedMajor, setSelectedMajor] = useState<string | null>(null);
   const [docsFilter, setDocsFilter] = useState<'essential' | 'all'>('all');
+  const [noticeLightboxIdx, setNoticeLightboxIdx] = useState<number | null>(null);
+
+  const hallNoticePhotos: CampusPhoto[] = useMemo(
+    () =>
+      REGISTRATION_HALL_NOTICES.map((n) => ({
+        id: `hall-notice-${n.id}`,
+        src: n.posterSrc,
+        thumbSrc: n.posterThumbSrc,
+        title: n.title,
+        caption: n.posterCaption,
+        album: 'اطلاعیه رسمی سالن ثبت‌نام',
+        category: 'campus',
+      })),
+    []
+  );
 
   // ویدیوی راهنمای ثبت‌نام حضوری (گام ۰ بسیج + گام ۱ تا ۱۲) با همگام‌سازی خودکار گام فعال با زمان پخش
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -352,7 +373,7 @@ export const GuidePage: React.FC = () => {
         </div>
 
         {/* نوار هشدار سامانه‌های الزامی و هزینه کارت دانشجویی */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
           <a
             href={OFFICIAL_UNIVERSITY_CONTACT.emtUrl}
             target="_blank"
@@ -360,8 +381,8 @@ export const GuidePage: React.FC = () => {
             className="rounded-xl border border-line bg-canvas px-4 py-3 flex items-center justify-between gap-2 hover:border-gold/50 transition-colors"
           >
             <div>
-              <p className="text-xs font-bold text-ink">تاییدیه تحصیلی (EMT)</p>
-              <p className="text-[11px] text-ink-muted mt-0.5">emt.medu.ir · الزامی برای مدارک حضوری</p>
+              <p className="text-xs font-bold text-ink">تأییدیه تحصیلی (EMT)</p>
+              <p className="text-[11px] text-ink-muted mt-0.5">emt.medu.ir · سوابق و مدرک دیپلم</p>
             </div>
             <ExternalLink className="w-4 h-4 text-gold shrink-0" />
           </a>
@@ -373,19 +394,35 @@ export const GuidePage: React.FC = () => {
             className="rounded-xl border border-gold/40 bg-canvas px-4 py-3 flex items-center justify-between gap-2 hover:border-gold transition-colors"
           >
             <div>
-              <p className="text-xs font-bold text-gold">سامانه استعدادیابی فرهنای وزارت علوم</p>
-              <p className="text-[11px] text-ink-muted mt-0.5">talent.dmsrt.ir · بخشنامه الزامی همه نوورودها</p>
+              <p className="text-xs font-bold text-gold">استعدادیابی فرهنای وزارت علوم</p>
+              <p className="text-[11px] text-ink-muted mt-0.5">talent.dmsrt.ir · الزامی همه نوورودها</p>
             </div>
             <ExternalLink className="w-4 h-4 text-gold shrink-0" />
           </a>
 
-          <div className="rounded-xl border border-line bg-canvas px-4 py-3">
-            <p className="text-xs font-bold text-ink">هزینه صدور کارت و خدمات دانشجویی</p>
+          <a
+            href={OFFICIAL_UNIVERSITY_CONTACT.epoliceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-xl border border-line bg-canvas px-4 py-3 flex items-center justify-between gap-2 hover:border-gold/50 transition-colors"
+          >
+            <div>
+              <p className="text-xs font-bold text-ink">معافیت تحصیلی (ویژه برادران)</p>
+              <p className="text-[11px] text-ink-muted mt-0.5">epolice.ir · با کد سخا و پلیس+۱۰</p>
+            </div>
+            <ExternalLink className="w-4 h-4 text-gold shrink-0" />
+          </a>
+
+          <a
+            href="#hall-notices"
+            className="rounded-xl border border-line bg-canvas px-4 py-3 hover:border-gold/50 transition-colors block"
+          >
+            <p className="text-xs font-bold text-ink">هزینه صدور کارت دانشجویی</p>
             <p className="text-[11px] text-ink-muted mt-0.5">
-              روزانه: <strong className="text-ink">{OFFICIAL_UNIVERSITY_CONTACT.cardFeeDayRial}</strong> · شبانه:{' '}
-              <strong className="text-ink">{OFFICIAL_UNIVERSITY_CONTACT.cardFeeNightRial}</strong>
+              روزانه: <strong className="text-ink">۲۰۰ هزار</strong> · شبانه:{' '}
+              <strong className="text-ink">۲۵۰ هزار تومان</strong>
             </p>
-          </div>
+          </a>
         </div>
       </section>
 
@@ -706,6 +743,145 @@ export const GuidePage: React.FC = () => {
         </div>
       </section>
 
+      {/* ۲.۵ تابلوی اعلانات فوری سالن ثبت‌نام (۳ اطلاعیه رسمی نصب‌شده در دانشگاه) */}
+      <section
+        id="hall-notices"
+        aria-labelledby="hall-notices-heading"
+        className="space-y-5"
+      >
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold text-gold inline-flex items-center gap-1.5 mb-1">
+              <ShieldAlert className="w-4 h-4" />
+              <span>دستورالعمل‌های رسمی نصب‌شده در سالن ثبت‌نام حضوری</span>
+            </p>
+            <h2 id="hall-notices-heading" className="text-xl sm:text-2xl font-extrabold text-ink">
+              ۰۲.۵ تابلوی اعلانات حیاتی پیش از ورود به سالن ثبت‌نام
+            </h2>
+            <p className="text-xs sm:text-sm text-ink-muted mt-1">
+              معافیت تحصیلی برادران، مسیر دقیق پرداخت هزینه کارت دانشجویی + کد رهگیری و نکات کلیدی لیست ۲۱ مدرک — روی هر کارت می‌توانی تصویر اصل اطلاعیه سالن را هم بزرگ ببینی.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {REGISTRATION_HALL_NOTICES.map((notice, idx) => {
+            const Icon =
+              notice.id === 'exemption'
+                ? ShieldAlert
+                : notice.id === 'card-fee'
+                  ? CreditCard
+                  : FileText;
+            return (
+              <article
+                key={notice.id}
+                className="rounded-3xl border border-line bg-surface p-5 sm:p-6 flex flex-col justify-between gap-4 hover:border-gold/45 transition-colors shadow-[var(--shadow-card)]"
+              >
+                <div className="space-y-3.5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <span className="text-[11px] font-bold text-gold inline-flex items-center gap-1.5">
+                        <Icon className="w-3.5 h-3.5" />
+                        <span>{notice.badge}</span>
+                      </span>
+                      <h3 className="text-base sm:text-lg font-extrabold text-ink leading-snug">
+                        {notice.title}
+                      </h3>
+                    </div>
+
+                    {/* پیش‌نمایش بندانگشتی تصویر اصل اطلاعیه سالن */}
+                    <button
+                      type="button"
+                      onClick={() => setNoticeLightboxIdx(idx)}
+                      aria-label={`مشاهده تصویر اصل ${notice.title}`}
+                      title="مشاهده تصویر اصل اطلاعیه سالن"
+                      className="group relative w-14 h-16 rounded-xl overflow-hidden border border-gold/40 bg-canvas shrink-0 cursor-pointer hover:border-gold"
+                    >
+                      <img
+                        src={notice.posterThumbSrc}
+                        alt=""
+                        loading="lazy"
+                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                      />
+                      <span className="absolute inset-0 bg-black/35 group-hover:bg-black/15 transition-colors flex items-center justify-center">
+                        <Expand className="w-4 h-4 text-[#f7dc94]" />
+                      </span>
+                    </button>
+                  </div>
+
+                  <p className="text-xs sm:text-sm text-ink-muted leading-relaxed">
+                    {notice.summary}
+                  </p>
+
+                  {/* مسیر مرحله‌به‌مرحله در پورتال دانشجویی برای کارت دانشجویی */}
+                  {notice.breadcrumbSteps && (
+                    <div className="rounded-2xl border border-gold/35 bg-gold-soft/35 p-3 space-y-1.5">
+                      <span className="text-[11px] font-bold text-gold block">
+                        مسیر دقیق پرداخت در پورتال دانشجویی:
+                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5 text-xs font-bold text-ink">
+                        {notice.breadcrumbSteps.map((step, sIdx) => (
+                          <React.Fragment key={step}>
+                            <span className="px-2 py-0.5 rounded-lg bg-surface border border-line">
+                              {step}
+                            </span>
+                            {sIdx < notice.breadcrumbSteps!.length - 1 && (
+                              <span aria-hidden="true" className="text-gold">←</span>
+                            )}
+                          </React.Fragment>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <ul className="space-y-2 text-xs sm:text-[13px] text-ink-muted leading-6">
+                    {notice.highlights.map((item) => (
+                      <li key={item} className="flex items-start gap-2">
+                        <span
+                          aria-hidden="true"
+                          className="mt-2 w-1.5 h-1.5 rounded-full bg-gold shrink-0"
+                        />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {notice.criticalWarning && (
+                    <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-3.5 py-2.5 flex items-start gap-2 text-xs text-ink font-semibold leading-5">
+                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                      <span>{notice.criticalWarning}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-3 border-t border-line flex flex-wrap items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNoticeLightboxIdx(idx)}
+                    className="min-h-[38px] px-3.5 rounded-xl border border-line bg-canvas hover:border-gold/60 text-xs font-bold text-ink inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Expand className="w-3.5 h-3.5 text-gold" />
+                    <span>تصویر اصل اطلاعیه سالن</span>
+                  </button>
+
+                  {notice.externalLink && (
+                    <a
+                      href={notice.externalLink.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="min-h-[38px] px-3.5 rounded-xl bg-emerald-deep text-[#f4f1e8] hover:bg-emerald-mid text-xs font-bold inline-flex items-center gap-1.5 transition-colors"
+                    >
+                      <span>{notice.externalLink.label}</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-gold" />
+                    </a>
+                  )}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
       {/* ۳. مدارک ۲۱‌گانه رسمی و فرم‌های پرونده */}
       <section aria-labelledby="docs-heading" className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
@@ -795,7 +971,7 @@ export const GuidePage: React.FC = () => {
         <div className="rounded-2xl border border-amber-500/35 bg-amber-500/10 p-4 flex items-start gap-3 text-xs sm:text-sm text-ink">
           <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
           <p className="leading-relaxed">
-            <strong>تذکر مهم آموزش:</strong> کلیه مدارک تحصیلی فوق باید دارای <strong>مهر و امضاء</strong> باشند. دانشجویان حتماً از تمامی مدارک بالا یک نسخه رونوشت تهیه نمایند و نزد خود نگه دارند تا در صورت نیاز در آینده از آن استفاده کنند.
+            <strong>تذکر مهم آموزش (برگرفته از اطلاعیه سالن ثبت‌نام):</strong> کلیه مدارک تحصیلی فوق باید دارای <strong>مهر و امضاء</strong> باشند. دانشجویان حتماً از تمامی مدارک بالا <strong>یک نسخه رونوشت کاغذی و یک فایل اسکن‌شده</strong> تهیه و نزد خود نگه دارند تا در صورت نیاز در آینده از آن استفاده نمایند.
           </p>
         </div>
       </section>
@@ -1214,6 +1390,14 @@ export const GuidePage: React.FC = () => {
           </form>
         </div>
       </section>
+
+      {/* نمایشگر بزرگ‌نمایی تصاویر اصل اطلاعیه‌های سالن ثبت‌نام */}
+      <PhotoLightbox
+        photos={hallNoticePhotos}
+        activeIndex={noticeLightboxIdx}
+        onClose={() => setNoticeLightboxIdx(null)}
+        onChangeIndex={setNoticeLightboxIdx}
+      />
     </div>
   );
 };

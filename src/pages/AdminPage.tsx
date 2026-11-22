@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom';
 import {
   BarChart3,
   CheckCircle2,
+  ClipboardCheck,
   Copy,
   Download,
   ExternalLink,
   FileCode2,
   FileSpreadsheet,
   FileText,
+  KeyRound,
   LogOut,
   MessageSquare,
   Printer,
@@ -27,6 +29,7 @@ import { api } from '../api/client';
 import { usePortal } from '../context/PortalContext';
 import { LogoEmblem } from '../components/LogoEmblem';
 import { JalaliDatePicker } from '../components/JalaliDatePicker';
+import { AdminBreakfastStudio } from '../components/AdminBreakfastStudio';
 import { parseStudentsCsv } from '../utils/coupon';
 import { toPersianDigits } from '../utils/persian';
 import type {
@@ -83,20 +86,9 @@ export const AdminPage: React.FC = () => {
   const [meals, setMeals] = useState<MealItem[]>([]);
   const [newMeal, setNewMeal] = useState({ name: '', dateJalali: '۱۴۰۵/۰۷/۰۴', startTime: '۰۷:۰۰', endTime: '۰۹:۳۰' });
   const [printCards, setPrintCards] = useState<{ name: string; code: string; qr: string; note: string }[] | null>(null);
-
-  // گزارش‌ها
-  const [report, setReport] = useState<{
-    meals: {
-      id: number;
-      name: string;
-      dateJalali: string;
-      claimed: number;
-      remaining: number;
-      total: number;
-      unclaimed: { id: number; fullName: string; note: string }[];
-    }[];
-    suspicious: { id: number; attempt_type: string; detail: string; created_at: string }[];
-  } | null>(null);
+  const [walkinEnabled, setWalkinEnabled] = useState(false);
+  const [walkinCode, setWalkinCode] = useState('');
+  const [savingWalkin, setSavingWalkin] = useState(false);
 
   // محتوا
   const [faqs, setFaqs] = useState<FaqItem[]>([]);
@@ -133,12 +125,15 @@ export const AdminPage: React.FC = () => {
           setOverview(ov);
         }
         if (activeTab === 'students' && ['owner', 'food_manager'].includes(activeUser.role)) {
-          const [sList, mList] = await Promise.all([api.getAdminStudents(stuQuery), api.getAdminMeals()]);
+          const [sList, mList, wCfg] = await Promise.all([
+            api.getAdminStudents(stuQuery),
+            api.getAdminMeals(),
+            api.getWalkinConfig(),
+          ]);
           setStudents(sList);
           setMeals(mList);
-        }
-        if (activeTab === 'reports' && ['owner', 'food_manager'].includes(activeUser.role)) {
-          setReport(await api.getBreakfastReport());
+          setWalkinEnabled(wCfg.couponWalkinEnabled);
+          setWalkinCode(wCfg.dailyCode);
         }
         if (activeTab === 'content' && ['owner', 'editor'].includes(activeUser.role)) {
           const [fList, aList, qList] = await Promise.all([
@@ -175,7 +170,7 @@ export const AdminPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (user && user.role !== 'scanner') {
+    if (user && user.role !== 'scanner' && user.role !== 'desk') {
       loadTabData(user, tab);
     }
   }, [user, tab, loadTabData]);
@@ -449,18 +444,35 @@ export const AdminPage: React.FC = () => {
     );
   }
 
-  if (user.role === 'scanner') {
+  if (user.role === 'scanner' || user.role === 'desk') {
+    const isDesk = user.role === 'desk';
     return (
       <div className="min-h-screen bg-canvas text-ink flex items-center justify-center p-6">
-        <div className="max-w-md rounded-2xl border border-line bg-surface p-6 text-center space-y-4">
-          <h1 className="text-xl font-bold">حساب شما ویژه اسکنر پخش صبحانه است</h1>
+        <div className="max-w-md w-full rounded-2xl border border-line bg-surface p-6 text-center space-y-4">
+          <h1 className="text-xl font-bold">
+            {isDesk
+              ? 'حساب شما ویژه پنل میز استقبال لابی (ثبت ۴۰۵) است'
+              : 'حساب شما ویژه اسکنر پخش صبحانه است'}
+          </h1>
+          <p className="text-xs text-ink-muted leading-relaxed">
+            {isDesk
+              ? 'برای حفظ تفکیک دسترسی‌ها، اپراتور میز استقبال تنها به صفحه ثبت شماره‌های دانشجویی ورودی ۴۰۵ دسترسی دارد.'
+              : 'برای حفظ تفکیک دسترسی‌ها، مسئول پخش صبحانه تنها به صفحه اسکنر ژتون دسترسی دارد.'}
+          </p>
           <Link
-            to="/scanner"
+            to={isDesk ? '/desk' : '/scanner'}
             className="inline-flex items-center justify-center gap-2 w-full min-h-[46px] rounded-xl bg-gold text-[#071714] font-bold text-sm"
           >
-            <QrCode className="w-4 h-4" />
-            <span>ورود به صفحه اسکنر</span>
+            {isDesk ? <ClipboardCheck className="w-4 h-4" /> : <QrCode className="w-4 h-4" />}
+            <span>{isDesk ? 'ورود به پنل میز استقبال' : 'ورود به صفحه اسکنر'}</span>
           </Link>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="text-xs text-red-500 hover:underline cursor-pointer"
+          >
+            خروج از این حساب
+          </button>
         </div>
       </div>
     );
@@ -507,6 +519,15 @@ export const AdminPage: React.FC = () => {
               <FileCode2 className="w-4 h-4 shrink-0" />
               <span>{exportingHtml ? 'در حال ساخت فایل...' : 'خروجی HTML آفلاین'}</span>
             </button>
+            {user.role === 'owner' && (
+              <Link
+                to="/desk"
+                className="hidden sm:inline-flex items-center gap-1.5 min-h-[38px] px-3 rounded-xl border border-line bg-canvas text-xs font-medium text-ink hover:border-gold/50"
+              >
+                <ClipboardCheck className="w-4 h-4 text-emerald-500" />
+                <span>میز استقبال</span>
+              </Link>
+            )}
             <Link
               to="/scanner"
               className="hidden sm:inline-flex items-center gap-1.5 min-h-[38px] px-3 rounded-xl border border-line bg-canvas text-xs font-medium text-ink hover:border-gold/50"
@@ -793,6 +814,103 @@ export const AdminPage: React.FC = () => {
         {/* تب ۲: دانشجویان و وعده‌های صبحانه */}
         {tab === 'students' && (
           <div className="space-y-6">
+            {/* حالت بدون لیست دانشگاه: صدور آنی با کد روزانه میز استقبال */}
+            <div className="rounded-2xl border border-gold/40 bg-surface p-6 space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-bold text-ink flex items-center gap-2">
+                    <KeyRound className="w-5 h-5 text-gold" />
+                    <span>حالت بدون لیست دانشگاه (صدور آنی با کد روزانه میز استقبال)</span>
+                  </h2>
+                  <p className="text-xs text-ink-muted mt-1.5 leading-relaxed max-w-3xl">
+                    اگر دانشگاه لیست نوورودی‌ها را در اختیار شما قرار نداد، کافی است این گزینه را فعال کنید و یک «کد روزانه» تعیین کنید. در روز ثبت‌نام، مسئول میز بسیج/هیئت (گام صفر) این کد را به نوورودی می‌گوید تا دانشجو در همان لحظه با نام و تاریخ تولدش کارت QR یک‌بارمصرف بگیرد. هر فرد در کل روزهای ثبت‌نام همچنان فقط یک نوبت صبحانه می‌تواند دریافت کند.
+                  </p>
+                </div>
+                <span
+                  className={`px-3 py-1 rounded-lg text-xs font-bold ${
+                    walkinEnabled
+                      ? 'bg-emerald-500/15 text-emerald-500'
+                      : 'bg-canvas border border-line text-ink-muted'
+                  }`}
+                >
+                  {walkinEnabled ? 'فعال' : 'غیرفعال'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                <label className="md:col-span-4 min-h-[44px] rounded-xl border border-line bg-canvas px-3.5 flex items-center gap-2.5 text-sm font-semibold text-ink cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={walkinEnabled}
+                    onChange={(e) => setWalkinEnabled(e.target.checked)}
+                    className="w-4 h-4 accent-[#deb154]"
+                  />
+                  <span>فعال‌سازی صدور آنی بدون لیست</span>
+                </label>
+
+                <div className="md:col-span-5">
+                  <label className="block text-xs text-ink-muted mb-1">
+                    کد روزانه میز استقبال (حداقل ۴ کاراکتر؛ هر روز قابل تغییر است)
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      dir="ltr"
+                      value={walkinCode}
+                      onChange={(e) => setWalkinCode(e.target.value)}
+                      placeholder="مثلاً: SALAM1405 یا 1405"
+                      className="flex-1 min-h-[44px] rounded-xl border border-line bg-canvas px-3 text-sm font-mono text-ink"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const rnd = String(Math.floor(1000 + Math.random() * 9000));
+                        setWalkinCode(`GNB${rnd}`);
+                      }}
+                      className="min-h-[44px] px-3 rounded-xl border border-line bg-canvas hover:border-gold/50 text-xs font-semibold text-ink cursor-pointer whitespace-nowrap"
+                    >
+                      کد تصادفی
+                    </button>
+                  </div>
+                </div>
+
+                <div className="md:col-span-3">
+                  <button
+                    type="button"
+                    disabled={savingWalkin}
+                    onClick={async () => {
+                      setSavingWalkin(true);
+                      try {
+                        const saved = await api.updateWalkinConfig({
+                          couponWalkinEnabled: walkinEnabled,
+                          dailyCode: walkinCode,
+                        });
+                        setWalkinEnabled(saved.couponWalkinEnabled);
+                        setWalkinCode(saved.dailyCode);
+                        await refreshSettings();
+                        showToast(
+                          saved.couponWalkinEnabled
+                            ? 'حالت بدون لیست با کد روزانه فعال شد.'
+                            : 'حالت بدون لیست غیرفعال شد.',
+                          'success'
+                        );
+                      } catch (err) {
+                        showToast(
+                          err instanceof Error ? err.message : 'خطا در ذخیره تنظیمات کد روزانه',
+                          'error'
+                        );
+                      } finally {
+                        setSavingWalkin(false);
+                      }
+                    }}
+                    className="w-full min-h-[44px] px-4 rounded-xl bg-gold text-[#071714] hover:bg-gold-strong font-bold text-xs cursor-pointer disabled:opacity-60"
+                  >
+                    {savingWalkin ? 'در حال ذخیره...' : 'ذخیره تنظیمات کد روزانه'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* ورود گروهی CSV با پیش‌نمایش */}
             <div className="rounded-2xl border border-line bg-surface p-6 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1005,8 +1123,9 @@ export const AdminPage: React.FC = () => {
                   <thead>
                     <tr className="border-b border-line text-ink-muted">
                       <th className="py-2.5 px-2">نام و نام‌خانوادگی</th>
+                      <th className="py-2.5 px-2">شماره دانشجویی</th>
+                      <th className="py-2.5 px-2">گروه / رشته</th>
                       <th className="py-2.5 px-2">کد ژتون</th>
-                      <th className="py-2.5 px-2">توضیحات</th>
                       <th className="py-2.5 px-2">وضعیت</th>
                       <th className="py-2.5 px-2">عملیات</th>
                     </tr>
@@ -1015,14 +1134,34 @@ export const AdminPage: React.FC = () => {
                     {students.map((s) => (
                       <tr key={s.id}>
                         <td className="py-2.5 px-2 font-semibold text-ink">
-                          {s.firstName} {s.lastName}
+                          {s.registrationStatus === 'authorized'
+                            ? 'منتظر تکمیل فرم توسط دانشجو'
+                            : `${s.firstName} ${s.lastName}`}
                           {s.isDemo && <span className="text-xs text-ink-muted mr-1">(نمونه)</span>}
                         </td>
+                        <td className="py-2.5 px-2 font-mono text-xs text-ink tabular-nums" dir="ltr">
+                          {s.studentNumber ? toPersianDigits(s.studentNumber) : '—'}
+                        </td>
+                        <td className="py-2.5 px-2 text-xs text-ink-muted">
+                          <span className="block text-ink font-medium">{s.cohortGroup || 'نوورود ۱۴۰۵'}</span>
+                          <span className="text-[11px]">{s.major || s.note || '—'}</span>
+                        </td>
                         <td className="py-2.5 px-2 font-mono text-xs text-ink-muted">{s.couponCode}</td>
-                        <td className="py-2.5 px-2 text-ink-muted">{s.note || '—'}</td>
                         <td className="py-2.5 px-2">
-                          <span className={s.active ? 'text-emerald-500' : 'text-red-500'}>
-                            {s.active ? 'فعال' : 'غیرفعال'}
+                          <span
+                            className={
+                              !s.active
+                                ? 'text-red-500'
+                                : s.registrationStatus === 'authorized'
+                                ? 'text-amber-500'
+                                : 'text-emerald-500'
+                            }
+                          >
+                            {!s.active
+                              ? 'غیرفعال'
+                              : s.registrationStatus === 'authorized'
+                              ? 'در انتظار ثبت فرم'
+                              : 'ثبت‌شده و فعال'}
                           </span>
                         </td>
                         <td className="py-2.5 px-2 flex items-center gap-2">
@@ -1091,89 +1230,8 @@ export const AdminPage: React.FC = () => {
           </div>
         )}
 
-        {/* تب ۳: گزارش‌های صبحانه */}
-        {tab === 'reports' && report && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {report.meals.map((m) => {
-                const pct = m.total > 0 ? Math.round((m.claimed / m.total) * 100) : 0;
-                return (
-                  <div key={m.id} className="rounded-2xl border border-line bg-surface p-6 space-y-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="font-bold text-ink">{m.name}</h3>
-                        <p className="text-xs text-ink-muted tabular-nums">{m.dateJalali}</p>
-                      </div>
-                      <a
-                        href={`/api/admin/reports/breakfast.csv?mealId=${m.id}`}
-                        className="px-3 py-1.5 rounded-lg border border-line bg-canvas text-xs text-gold font-semibold inline-flex items-center gap-1.5"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>خروجی Excel (CSV)</span>
-                      </a>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                      <div className="rounded-xl bg-canvas p-3">
-                        <div className="text-xl font-extrabold text-emerald-500 tabular-nums">
-                          {toPersianDigits(m.claimed)}
-                        </div>
-                        <div className="text-ink-muted">دریافت کرده</div>
-                      </div>
-                      <div className="rounded-xl bg-canvas p-3">
-                        <div className="text-xl font-extrabold text-gold tabular-nums">
-                          {toPersianDigits(m.remaining)}
-                        </div>
-                        <div className="text-ink-muted">نگرفته</div>
-                      </div>
-                      <div className="rounded-xl bg-canvas p-3">
-                        <div className="text-xl font-extrabold text-ink tabular-nums">
-                          {toPersianDigits(pct)}٪
-                        </div>
-                        <div className="text-ink-muted">نرخ توزیع</div>
-                      </div>
-                    </div>
-
-                    <div className="h-2.5 rounded-full bg-canvas overflow-hidden">
-                      <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
-                    </div>
-
-                    {m.unclaimed.length > 0 && (
-                      <div className="pt-2 border-t border-line">
-                        <p className="text-xs font-semibold text-ink mb-2">
-                          فهرست نگرفته‌ها ({toPersianDigits(m.unclaimed.length)} نفر):
-                        </p>
-                        <div className="max-h-32 overflow-y-auto text-xs text-ink-muted space-y-1">
-                          {m.unclaimed.map((u) => (
-                            <p key={u.id}>
-                              {u.fullName} {u.note ? `(${u.note})` : ''}
-                            </p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="rounded-2xl border border-line bg-surface p-6 space-y-3">
-              <h3 className="font-bold text-ink">تلاش‌های مشکوک و دریافت مجدد</h3>
-              {report.suspicious.length === 0 ? (
-                <p className="text-xs text-ink-muted">مورد مشکوکی ثبت نشده است.</p>
-              ) : (
-                <div className="divide-y divide-line text-xs">
-                  {report.suspicious.map((s) => (
-                    <div key={s.id} className="py-2 flex items-center justify-between gap-2">
-                      <span className="text-ink">{s.detail}</span>
-                      <span className="text-ink-muted tabular-nums">{s.created_at}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {/* تب ۳: داشبورد تحلیلی و استودیوی خروجی صبحانه (اکسل / HTML گرافیکی / PDF + تایید ویژه غیر ۴۰۵ برای مدیر کل) */}
+        {tab === 'reports' && <AdminBreakfastStudio user={user} />}
 
         {/* تب ۴: مدیریت محتوا (FAQ، اطلاعیه‌ها، پاسخ به سوالات دانشجویان) */}
         {tab === 'content' && (

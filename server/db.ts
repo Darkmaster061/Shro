@@ -22,7 +22,7 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   siteTitle: 'پرتال هوشمند نوورودی‌ها',
   universityName: 'مجتمع آموزش عالی گناباد',
   basijLogoUrl: '/assets/basij-logo-official.png',
-  heyatLogoUrl: '',
+  heyatLogoUrl: '/assets/heyat-logo-official.png',
   heroImageUrl: '',
   accentColor: '#deb154',
   targetEventTitle: 'آغاز ثبت‌نام حضوری نوورودی‌های ۱۴۰۵ (یکشنبه ۱ تا سه‌شنبه ۳ آذر)',
@@ -48,10 +48,11 @@ export const DEFAULT_SETTINGS: SiteSettings = {
   basijIntroText:
     'بسیج دانشجویی دانشگاه گناباد (حوزه شهید شوریده) با هدف همراهی علمی، فرهنگی، مهارتی و جهادی با دانشجویان، از نخستین روز ورود شما در کنارتان است.',
   heyatIntroText:
-    'هیئت دانشجویی محبان‌الحسین (ع) دانشگاه گناباد، محفل صمیمی همدلی، معنویت و برنامه‌های هفتگی دانشجویان در مسجد حضرت فاطمه زهرا (س) و جوار مزار شهدای گمنام است. هر هفته یکشنبه‌ها (عصرهای عاشقی) و سه‌شنبه‌ها (مجالس روضه هفتگی) و در ایام ثبت‌نام با ایستگاه صبحانه میزبان شما نوورودی‌های عزیز هستیم.',
+    'فعالیت‌های مستمر هیئت محبان‌الحسین (ع) از سال ۱۴۰۱ آغاز شده و تا به امروز به مدد اهل بیت (ع) پابرجا مانده است.\n\nاین هیئت با برگزاری مراسم هفتگی و برنامه‌های مرتبط با شهادت و ولایت ائمه اطهار (ع)، فضایی معنوی و صمیمی برای دانشجویان فراهم می‌کند. از جمله برنامه‌های شاخص آن می‌توان به مراسمات شهادت امام صادق (ع)، اعیاد شعبانیه، پذیرایی از دانشجویان نوورود، عید غدیر و فاطمیه اشاره کرد که شامل استقبال از شهید گمنام، برگزاری نمایشگاه در رابطه با زندگینامه حضرت زهرا (س)، اجرای تئاتر و به‌ویژه دعوت از کودکان بی‌سرپرست و پذیرایی از آن‌ها بوده است.\n\nاز همه دانشجویان جدید دعوت می‌شود تا در برنامه‌های هیئت حضور پیدا کنند و در این فضای معنوی سهیم باشند.',
   cadresPdfUrl: OFFICIAL_BASIJ_PDF_URL,
   cadresPdfTitle: OFFICIAL_BASIJ_PDF_TITLE,
   autoPurgeDays: Number(process.env.AUTO_PURGE_DAYS || 0),
+  couponWalkinEnabled: false,
 };
 
 export function initDatabase() {
@@ -66,7 +67,7 @@ export function initDatabase() {
       username TEXT UNIQUE NOT NULL,
       display_name TEXT NOT NULL,
       password_hash TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('owner','editor','food_manager','scanner')),
+      role TEXT NOT NULL CHECK(role IN ('owner','editor','food_manager','scanner','desk')),
       failed_attempts INTEGER NOT NULL DEFAULT 0,
       locked_until INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -251,6 +252,68 @@ export function initDatabase() {
     db.exec('ALTER TABLE cadres ADD COLUMN pdf_page INTEGER NOT NULL DEFAULT 1');
   }
 
+  // مهاجرت امن ستون‌های سامانه شماره دانشجویی و فرم ثبت‌نام ژتون برای دیتابیس‌های قبلی
+  const stuCols = db.prepare('PRAGMA table_info(students)').all() as { name: string }[];
+  const stuColNames = new Set(stuCols.map((c) => c.name));
+  const studentAdditions: [string, string][] = [
+    ['student_number', "TEXT NOT NULL DEFAULT ''"],
+    ['national_id', "TEXT NOT NULL DEFAULT ''"],
+    ['phone', "TEXT NOT NULL DEFAULT ''"],
+    ['birth_jalali', "TEXT NOT NULL DEFAULT ''"],
+    ['major', "TEXT NOT NULL DEFAULT ''"],
+    ['cohort_group', "TEXT NOT NULL DEFAULT 'نوورود ۱۴۰۵'"],
+    ['registration_status', "TEXT NOT NULL DEFAULT 'registered'"],
+    ['authorized_by', "TEXT NOT NULL DEFAULT ''"],
+    ['authorized_at', "TEXT NOT NULL DEFAULT ''"],
+    ['registered_at', "TEXT NOT NULL DEFAULT ''"],
+  ];
+  for (const [col, def] of studentAdditions) {
+    if (!stuColNames.has(col)) {
+      db.exec(`ALTER TABLE students ADD COLUMN ${col} ${def}`);
+    }
+  }
+  db.exec(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_students_student_number ON students(student_number) WHERE student_number != ''"
+  );
+
+  // مهاجرت امن جدول admin_users جهت پشتیبانی از نقش اپراتور میز استقبال (desk) در دیتابیس‌های قدیمی
+  const deskMigRow = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get('__migration_desk_role_v1') as { value: string } | undefined;
+  if (!deskMigRow) {
+    const tableSqlRow = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'admin_users'")
+      .get() as { sql?: string } | undefined;
+    const needsRebuild = Boolean(tableSqlRow?.sql && !tableSqlRow.sql.includes("'desk'"));
+    if (needsRebuild) {
+      db.pragma('foreign_keys = OFF');
+      const rebuildTx = db.transaction(() => {
+        db.exec(`
+          CREATE TABLE admin_users_new (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            display_name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL CHECK(role IN ('owner','editor','food_manager','scanner','desk')),
+            failed_attempts INTEGER NOT NULL DEFAULT 0,
+            locked_until INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+          );
+          INSERT INTO admin_users_new (id, username, display_name, password_hash, role, failed_attempts, locked_until, created_at)
+          SELECT id, username, display_name, password_hash, role, failed_attempts, locked_until, created_at FROM admin_users;
+          DROP TABLE admin_users;
+          ALTER TABLE admin_users_new RENAME TO admin_users;
+        `);
+      });
+      rebuildTx();
+      db.pragma('foreign_keys = ON');
+    }
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+      '__migration_desk_role_v1',
+      JSON.stringify('1')
+    );
+  }
+
   seedInitialData();
 }
 
@@ -288,10 +351,23 @@ function seedInitialData() {
     const editorPass = process.env.EDITOR_PASSWORD || 'Gonabad@Editor2026';
     const foodPass = process.env.FOOD_PASSWORD || 'Gonabad@Food2026';
     const scannerPass = process.env.SCANNER_PASSWORD || 'Gonabad@Scan2026';
+    const deskPass = process.env.DESK_PASSWORD || 'Gonabad@Desk2026';
     insertUser.run('owner', 'مدیر کل سامانه', bcrypt.hashSync(ownerPass, 12), 'owner');
     insertUser.run('editor', 'ویراستار محتوا', bcrypt.hashSync(editorPass, 12), 'editor');
     insertUser.run('food', 'مسئول تغذیه و ژتون', bcrypt.hashSync(foodPass, 12), 'food_manager');
     insertUser.run('scanner', 'مسئول پخش صبحانه', bcrypt.hashSync(scannerPass, 12), 'scanner');
+    insertUser.run('desk', 'اپراتور میز استقبال لابی', bcrypt.hashSync(deskPass, 12), 'desk');
+  }
+
+  // تضمین وجود حساب کاربری اپراتور میز استقبال لابی در دیتابیس‌های موجود
+  const deskUserExists = db
+    .prepare('SELECT id FROM admin_users WHERE username = ?')
+    .get('desk') as { id: number } | undefined;
+  if (!deskUserExists) {
+    const deskPass = process.env.DESK_PASSWORD || 'Gonabad@Desk2026';
+    db.prepare(
+      'INSERT INTO admin_users (username, display_name, password_hash, role) VALUES (?, ?, ?, ?)'
+    ).run('desk', 'اپراتور میز استقبال لابی', bcrypt.hashSync(deskPass, 12), 'desk');
   }
 
   // وعده‌های صبحانه نمونه
@@ -1073,12 +1149,158 @@ function seedInitialData() {
     });
     migrateBasijOfficial();
   }
+
+  // اتصال یک‌باره تصاویر واقعی و محلی (WebP) به گالری خوابگاه‌های پروین اعتصامی و خاتم‌الانبیاء
+  const dormGalleryMigRow = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get('__migration_dorm_real_gallery_1405') as { value: string } | undefined;
+
+  if (!dormGalleryMigRow) {
+    const migrateDormGallery = db.transaction(() => {
+      const parvinGallery = JSON.stringify([
+        '/assets/campus/parvin-1.webp',
+        '/assets/campus/parvin-2.webp',
+        '/assets/campus/parvin-3.webp',
+        '/assets/campus/parvin-4.webp',
+      ]);
+      const khatamGallery = JSON.stringify([
+        '/assets/campus/khatam-1.webp',
+        '/assets/campus/khatam-2.webp',
+        '/assets/campus/khatam-3.webp',
+        '/assets/campus/khatam-4.webp',
+      ]);
+
+      db.prepare(`
+        UPDATE dorms
+        SET gallery_json = ?
+        WHERE name LIKE '%پروین%' AND (gallery_json IS NULL OR gallery_json = '' OR gallery_json = '[]')
+      `).run(parvinGallery);
+
+      db.prepare(`
+        UPDATE dorms
+        SET gallery_json = ?
+        WHERE name LIKE '%خاتم%' AND (gallery_json IS NULL OR gallery_json = '' OR gallery_json = '[]')
+      `).run(khatamGallery);
+
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+        '__migration_dorm_real_gallery_1405',
+        JSON.stringify('1')
+      );
+    });
+    migrateDormGallery();
+  }
+
+  // ثبت یک‌باره لوگوی رسمی هیئت دانشجویی محبان‌الحسین (ع) در صورت خالی بودن
+  const heyatLogoMigRow = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get('__migration_heyat_official_logo_1405') as { value: string } | undefined;
+
+  if (!heyatLogoMigRow) {
+    const migrateHeyatLogo = db.transaction(() => {
+      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('heyatLogoUrl') as
+        | { value: string }
+        | undefined;
+      let currentVal = '';
+      if (row) {
+        try {
+          const parsed = JSON.parse(row.value);
+          currentVal = typeof parsed === 'string' ? parsed.trim() : '';
+        } catch {
+          currentVal = row.value.trim();
+        }
+      }
+      if (!currentVal) {
+        db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+          'heyatLogoUrl',
+          JSON.stringify('/assets/heyat-logo-official.png')
+        );
+      }
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+        '__migration_heyat_official_logo_1405',
+        JSON.stringify('1')
+      );
+    });
+    migrateHeyatLogo();
+  }
+
+  // ثبت یک‌باره بیوگرافی رسمی هیئت دانشجویی محبان‌الحسین (ع) (آغاز فعالیت از ۱۴۰۱)
+  const heyatBioMigRow = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get('__migration_heyat_official_bio_1405') as { value: string } | undefined;
+
+  if (!heyatBioMigRow) {
+    const migrateHeyatBio = db.transaction(() => {
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+        'heyatIntroText',
+        JSON.stringify(DEFAULT_SETTINGS.heyatIntroText)
+      );
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+        '__migration_heyat_official_bio_1405',
+        JSON.stringify('1')
+      );
+    });
+    migrateHeyatBio();
+  }
+
+  // درج یک‌باره ۲ کد نمونه ورودی ۱۴۰۵ برای آزمایش سریع جریان میز استقبال ← فرم دانشجو ← اسکنر (قابل حذف با دکمه حذف داده‌های نمونه)
+  const stuIdDemoMig = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get('__migration_student_id_demo_v1') as { value: string } | undefined;
+  if (!stuIdDemoMig) {
+    const seedStuIdDemo = db.transaction(() => {
+      const nowIso = new Date().toISOString();
+      const exists1 = db
+        .prepare('SELECT id FROM students WHERE student_number = ?')
+        .get('4051232101');
+      if (!exists1) {
+        db.prepare(
+          `INSERT INTO students (
+            student_number, first_name, last_name, first_name_norm, last_name_norm,
+            birth_hash, coupon_code, national_id, phone, birth_jalali, major,
+            cohort_group, registration_status, authorized_by, authorized_at, registered_at,
+            note, active, is_demo
+          ) VALUES (?, '', '', '', '', ?, ?, '', '', '', '', 'نوورود ۱۴۰۵', 'authorized', 'desk', ?, '', 'نمونه آزمایشی در انتظار تکمیل فرم', 1, 1)`
+        ).run('4051232101', 'pending:4051232101', generateCouponCode(), nowIso);
+      }
+
+      const exists2 = db
+        .prepare('SELECT id FROM students WHERE student_number = ?')
+        .get('4051232102');
+      if (!exists2) {
+        const hash2 = computeBirthHash('امیرحسین', 'رضایی', '1387/04/15') || 'demo:4051232102';
+        db.prepare(
+          `INSERT OR IGNORE INTO students (
+            student_number, first_name, last_name, first_name_norm, last_name_norm,
+            birth_hash, coupon_code, national_id, phone, birth_jalali, major,
+            cohort_group, registration_status, authorized_by, authorized_at, registered_at,
+            note, active, is_demo
+          ) VALUES (?, 'امیرحسین', 'رضایی', ?, ?, ?, ?, '0013520849', '09151234567', '1387/04/15', 'مهندسی کامپیوتر', 'نوورود ۱۴۰۵', 'registered', 'desk', ?, ?, 'نمونه آزمایشی ثبت‌نام شده', 1, 1)`
+        ).run(
+          '4051232102',
+          normalizeNameCompact('امیرحسین'),
+          normalizeNameCompact('رضایی'),
+          hash2,
+          generateCouponCode(),
+          nowIso,
+          nowIso
+        );
+      }
+
+      db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(
+        '__migration_student_id_demo_v1',
+        JSON.stringify('1')
+      );
+    });
+    seedStuIdDemo();
+  }
 }
 
 export function getSettings(): SiteSettings {
   const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
   const merged: Record<string, unknown> = { ...DEFAULT_SETTINGS };
   for (const row of rows) {
+    // فقط کلیدهای عمومی مجاز در DEFAULT_SETTINGS بازگردانده می‌شوند (کلیدهای محرمانه و داخلی هرگز افشا نمی‌شوند)
+    if (!(row.key in DEFAULT_SETTINGS)) continue;
     try {
       merged[row.key] = JSON.parse(row.value);
     } catch {
@@ -1086,6 +1308,27 @@ export function getSettings(): SiteSettings {
     }
   }
   return merged as unknown as SiteSettings;
+}
+
+const SECRET_DAILY_CODE_KEY = '__secret_coupon_daily_code';
+
+export function getCouponDailyCode(): string {
+  const row = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get(SECRET_DAILY_CODE_KEY) as { value: string } | undefined;
+  if (!row) return '';
+  try {
+    const parsed = JSON.parse(row.value);
+    return typeof parsed === 'string' ? parsed : '';
+  } catch {
+    return row.value;
+  }
+}
+
+export function setCouponDailyCode(code: string) {
+  db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+  ).run(SECRET_DAILY_CODE_KEY, JSON.stringify(code.trim()));
 }
 
 export function saveSettings(partial: Partial<SiteSettings>) {

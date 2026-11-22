@@ -1,11 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
+  ArrowLeft,
   Bus,
+  Camera,
   Check,
   Clock,
   Columns,
+  Expand,
   HeartPulse,
+  Images,
   MapPin,
   Navigation,
   Phone,
@@ -16,6 +21,14 @@ import {
 } from 'lucide-react';
 import { api } from '../api/client';
 import { TiltCard } from '../components/TiltCard';
+import { PhotoLightbox } from '../components/PhotoLightbox';
+import {
+  DORM_ALBUM_META,
+  getDormPhotos,
+  resolveDormKeyByName,
+  type CampusPhoto,
+  type DormPhotoKey,
+} from '../data/campusGallery';
 import {
   DORM_PACKING_LIST,
   OFFICIAL_DORM_FEES_1405,
@@ -35,6 +48,11 @@ export const DormsPage: React.FC = () => {
   const [selectedDorm, setSelectedDorm] = useState<DormItem | null>(null);
   const [compareIds, setCompareIds] = useState<number[]>([]);
   const [shuttleTab, setShuttleTab] = useState<'sisters' | 'brothers' | 'thursday'>('sisters');
+  const [dormPhotoTab, setDormPhotoTab] = useState<DormPhotoKey>('parvin');
+  const [lightboxState, setLightboxState] = useState<{
+    photos: CampusPhoto[];
+    index: number;
+  } | null>(null);
   const [packedIds, setPackedIds] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem('gonabad_packing') || '[]');
@@ -42,6 +60,30 @@ export const DormsPage: React.FC = () => {
       return [];
     }
   });
+
+  const activeDormAlbumPhotos = useMemo(() => getDormPhotos(dormPhotoTab), [dormPhotoTab]);
+
+  /** استخراج لیست تصاویر واقعی هر خوابگاه (تصاویر ذخیره‌شده در دیتابیس یا آلبوم محلی رسمی همان خوابگاه) */
+  const resolvePhotosForDorm = (dorm: DormItem): CampusPhoto[] => {
+    const dormKey = resolveDormKeyByName(dorm.name, dorm.gender);
+    const curated = dormKey ? getDormPhotos(dormKey) : [];
+    if (dorm.gallery && dorm.gallery.length > 0) {
+      return dorm.gallery.map((url, idx) => {
+        const matched = curated.find((p) => p.src === url);
+        if (matched) return matched;
+        return {
+          id: `dorm-${dorm.id}-${idx}`,
+          src: url,
+          thumbSrc: url,
+          title: `${dorm.name} — تصویر ${toPersianDigits(idx + 1)}`,
+          caption: dorm.address,
+          album: dorm.name,
+          category: 'dorms',
+        };
+      });
+    }
+    return curated;
+  };
 
   useEffect(() => {
     api
@@ -247,30 +289,59 @@ export const DormsPage: React.FC = () => {
         >
           {filtered.map((dorm) => {
             const isCompared = compareIds.includes(dorm.id);
+            const dormPhotos = resolvePhotosForDorm(dorm);
+            const coverPhoto = dormPhotos[0];
             return (
               <TiltCard key={dorm.id}>
                 <article className="h-full rounded-2xl border border-line bg-surface overflow-hidden flex flex-col justify-between">
-                  {/* هدر تصویری/هندسی بدون لینک خارجی */}
-                  <div className="relative h-40 bg-emerald-deep/90 text-[#f4f1e8] p-5 flex flex-col justify-between overflow-hidden">
-                    {dorm.gallery[0] ? (
-                      <img
-                        src={dorm.gallery[0]}
-                        alt={dorm.name}
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        className="absolute inset-0 w-full h-full object-cover opacity-50"
-                      />
+                  {/* هدر تصویری واقعی خوابگاه (کاملاً محلی WebP) با دسترسی مستقیم به گالری */}
+                  <div className="relative h-52 bg-emerald-deep/90 text-[#f4f1e8] p-5 flex flex-col justify-between overflow-hidden group">
+                    {coverPhoto ? (
+                      <>
+                        <img
+                          src={coverPhoto.thumbSrc}
+                          srcSet={
+                            coverPhoto.thumbSrc !== coverPhoto.src
+                              ? `${coverPhoto.thumbSrc} 640w, ${coverPhoto.src} 1280w`
+                              : undefined
+                          }
+                          sizes="(max-width: 768px) 100vw, 50vw"
+                          alt={dorm.name}
+                          loading="lazy"
+                          decoding="async"
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                        />
+                        <div
+                          aria-hidden="true"
+                          className="absolute inset-0 bg-gradient-to-t from-[#04110f]/92 via-[#04110f]/35 to-[#04110f]/35"
+                        />
+                      </>
                     ) : (
                       <div
                         aria-hidden="true"
                         className="absolute inset-0 shamsi-pattern opacity-40"
                       />
                     )}
-                    <div className="relative flex items-center justify-between text-xs">
-                      <span className="font-semibold text-gold">خوابگاه {dorm.gender}</span>
-                      {dorm.isDemo && <span className="opacity-75">نمونه</span>}
+                    <div className="relative flex items-center justify-between gap-2 text-xs">
+                      <span className="px-2.5 py-1 rounded-lg bg-[#051210]/70 backdrop-blur-md border border-white/15 font-semibold text-gold">
+                        خوابگاه {dorm.gender}
+                      </span>
+                      {dormPhotos.length > 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setLightboxState({ photos: dormPhotos, index: 0 })}
+                          className="px-2.5 py-1 rounded-lg bg-[#051210]/75 backdrop-blur-md border border-white/20 hover:border-gold text-white font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Camera className="w-3.5 h-3.5 text-gold" />
+                          <span className="tabular-nums">{toPersianDigits(dormPhotos.length)} تصویر</span>
+                        </button>
+                      ) : (
+                        dorm.isDemo && <span className="opacity-75">نمونه</span>
+                      )}
                     </div>
-                    <h2 className="relative text-lg font-bold leading-snug">{dorm.name}</h2>
+                    <h2 className="relative text-lg font-extrabold leading-snug drop-shadow">
+                      {dorm.name}
+                    </h2>
                   </div>
 
                   <div className="p-5 flex-1 flex flex-col justify-between space-y-4">
@@ -401,6 +472,100 @@ export const DormsPage: React.FC = () => {
           </div>
         </section>
       )}
+
+      {/* گالری تصاویر واقعی سراهای دانشجویی */}
+      <section
+        id="dorm-gallery"
+        aria-labelledby="dorm-gallery-heading"
+        className="rounded-3xl border border-line bg-surface p-5 sm:p-7 space-y-5"
+      >
+        <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-line pb-4">
+          <div className="space-y-1">
+            <p className="text-xs font-bold text-gold inline-flex items-center gap-1.5">
+              <Images className="w-4 h-4" />
+              <span>تصاویر واقعی محیط اسکان و سراهای دانشجویی</span>
+            </p>
+            <h2 id="dorm-gallery-heading" className="text-xl sm:text-2xl font-extrabold text-ink">
+              گالری عکس خوابگاه‌های دانشگاه گناباد
+            </h2>
+            <p className="text-xs sm:text-sm text-ink-muted">
+              {DORM_ALBUM_META[dormPhotoTab].subtitle}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              role="tablist"
+              aria-label="انتخاب آلبوم خوابگاه"
+              className="flex flex-wrap gap-1.5 bg-canvas border border-line p-1 rounded-xl"
+            >
+              {(['parvin', 'khatam', 'andisheh'] as DormPhotoKey[]).map((key) => {
+                const active = dormPhotoTab === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setDormPhotoTab(key)}
+                    className={`min-h-[38px] px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                      active
+                        ? 'bg-gold text-[#071714]'
+                        : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    {key === 'parvin'
+                      ? 'پروین اعتصامی (خواهران)'
+                      : key === 'khatam'
+                        ? 'خاتم‌الانبیاء (برادران)'
+                        : 'سرای اندیشه (برادران)'}
+                  </button>
+                );
+              })}
+            </div>
+
+            <Link
+              to="/gallery"
+              className="min-h-[40px] px-3.5 rounded-xl border border-gold/40 bg-canvas hover:border-gold text-xs font-bold text-gold-strong dark:text-gold inline-flex items-center gap-1.5 transition-colors"
+            >
+              <span>کل گالری دانشگاه</span>
+              <ArrowLeft className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {activeDormAlbumPhotos.map((photo, idx) => (
+            <button
+              key={photo.id}
+              type="button"
+              onClick={() => setLightboxState({ photos: activeDormAlbumPhotos, index: idx })}
+              aria-label={`مشاهده بزرگ ${photo.title}`}
+              className="group relative aspect-[4/3] rounded-2xl overflow-hidden border border-line bg-emerald-deep/30 text-right cursor-pointer hover:border-gold/55 transition-all"
+            >
+              <img
+                src={photo.thumbSrc}
+                srcSet={`${photo.thumbSrc} 640w, ${photo.src} 1280w`}
+                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
+                alt={photo.title}
+                loading="lazy"
+                decoding="async"
+                className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+              />
+              <div
+                aria-hidden="true"
+                className="absolute inset-0 bg-gradient-to-t from-[#04110f]/85 via-transparent to-transparent"
+              />
+              <span className="absolute top-2.5 left-2.5 w-8 h-8 rounded-lg bg-[#051210]/70 backdrop-blur-md border border-white/15 text-[#deb154] flex items-center justify-center opacity-85 group-hover:opacity-100">
+                <Expand className="w-3.5 h-3.5" />
+              </span>
+              <div className="absolute bottom-2.5 right-3 left-3">
+                <p className="text-xs font-bold text-white line-clamp-1">{photo.title}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </section>
 
       {/* برنامه رسمی زمان‌بندی سرویس ایاب و ذهاب دانشجویان */}
       <section
@@ -655,6 +820,43 @@ export const DormsPage: React.FC = () => {
               </button>
             </div>
 
+            {/* نوار تصاویر واقعی این خوابگاه داخل مودال */}
+            {(() => {
+              const modalPhotos = resolvePhotosForDorm(selectedDorm);
+              if (modalPhotos.length === 0) return null;
+              return (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-bold text-gold inline-flex items-center gap-1.5">
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>تصاویر واقعی {selectedDorm.name}</span>
+                    </span>
+                    <span className="text-ink-muted">برای بزرگ‌نمایی روی عکس بزن</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    {modalPhotos.map((photo, idx) => (
+                      <button
+                        key={photo.id}
+                        type="button"
+                        onClick={() => setLightboxState({ photos: modalPhotos, index: idx })}
+                        className="group relative aspect-[4/3] rounded-xl overflow-hidden border border-line hover:border-gold cursor-pointer"
+                      >
+                        <img
+                          src={photo.thumbSrc}
+                          alt={photo.title}
+                          loading="lazy"
+                          className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        />
+                        <span className="absolute inset-0 bg-black/0 group-hover:bg-black/25 transition-colors flex items-center justify-center">
+                          <Expand className="w-4 h-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
               <div className="rounded-xl border border-line bg-surface p-3.5">
                 <span className="text-xs text-ink-muted block">آدرس</span>
@@ -741,6 +943,16 @@ export const DormsPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* نمایشگر تمام‌صفحه تصاویر خوابگاه‌ها */}
+      <PhotoLightbox
+        photos={lightboxState?.photos ?? []}
+        activeIndex={lightboxState ? lightboxState.index : null}
+        onClose={() => setLightboxState(null)}
+        onChangeIndex={(nextIdx) =>
+          setLightboxState((prev) => (prev ? { ...prev, index: nextIdx } : null))
+        }
+      />
     </div>
   );
 };

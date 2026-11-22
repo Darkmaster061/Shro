@@ -44,6 +44,7 @@ const SAMPLE_SNAPSHOT: OfflinePortalSnapshot = {
     cadresPdfUrl: '',
     cadresPdfTitle: '',
     autoPurgeDays: 0,
+    couponWalkinEnabled: false,
   },
   announcements: [
     {

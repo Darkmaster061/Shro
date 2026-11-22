@@ -20,6 +20,13 @@ interface PortalContextValue {
   toggleTheme: () => void;
   liteMode: boolean;
   toggleLiteMode: () => void;
+  largeText: boolean;
+  toggleLargeText: () => void;
+  mobileFocusMode: boolean;
+  setMobileFocusMode: (val: boolean) => void;
+  quickSearchOpen: boolean;
+  openQuickSearch: () => void;
+  closeQuickSearch: () => void;
   completedSteps: string[];
   toggleStep: (id: string) => void;
   checklistProgress: number;
@@ -65,6 +72,7 @@ const FALLBACK_SETTINGS: SiteSettings = {
   cadresPdfUrl: OFFICIAL_BASIJ_PDF_URL,
   cadresPdfTitle: OFFICIAL_BASIJ_PDF_TITLE,
   autoPurgeDays: 0,
+  couponWalkinEnabled: false,
 };
 
 const PortalContext = createContext<PortalContextValue | null>(null);
@@ -80,6 +88,14 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
     if (saved !== null) return saved === '1';
     return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
   });
+  const [largeText, setLargeText] = useState<boolean>(() => {
+    return localStorage.getItem('gonabad_large_text') === '1';
+  });
+  const [mobileFocusMode, setMobileFocusModeState] = useState<boolean>(() => {
+    const saved = localStorage.getItem('gonabad_mobile_focus');
+    return saved === null ? true : saved === '1';
+  });
+  const [quickSearchOpen, setQuickSearchOpen] = useState(false);
   const [completedSteps, setCompletedSteps] = useState<string[]>(() => {
     try {
       const raw = localStorage.getItem('gonabad_checklist');
@@ -126,6 +142,17 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
     }
   }, [settings.accentColor]);
 
+  // همگام‌سازی اندازه متن خوانا (ویژه دانشجویان و خانواده‌ها در موبایل)
+  useEffect(() => {
+    const root = document.documentElement;
+    if (largeText) {
+      root.classList.add('reading-large');
+    } else {
+      root.classList.remove('reading-large');
+    }
+    localStorage.setItem('gonabad_large_text', largeText ? '1' : '0');
+  }, [largeText]);
+
   const toggleTheme = useCallback(() => {
     setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
   }, []);
@@ -137,6 +164,18 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
       return next;
     });
   }, []);
+
+  const toggleLargeText = useCallback(() => {
+    setLargeText((prev) => !prev);
+  }, []);
+
+  const setMobileFocusMode = useCallback((val: boolean) => {
+    localStorage.setItem('gonabad_mobile_focus', val ? '1' : '0');
+    setMobileFocusModeState(val);
+  }, []);
+
+  const openQuickSearch = useCallback(() => setQuickSearchOpen(true), []);
+  const closeQuickSearch = useCallback(() => setQuickSearchOpen(false), []);
 
   const toggleStep = useCallback((id: string) => {
     setCompletedSteps((prev) => {
@@ -183,6 +222,13 @@ export function PortalProvider({ children }: { children: React.ReactNode }) {
         toggleTheme,
         liteMode,
         toggleLiteMode,
+        largeText,
+        toggleLargeText,
+        mobileFocusMode,
+        setMobileFocusMode,
+        quickSearchOpen,
+        openQuickSearch,
+        closeQuickSearch,
         completedSteps,
         toggleStep,
         checklistProgress,

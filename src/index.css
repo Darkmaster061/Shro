@@ -10,28 +10,30 @@
   --color-ink-muted: #4b615b;
   --color-border: rgba(16, 36, 32, 0.11);
   --color-accent: #b88224;
-  --color-accent-strong: #9c6b17;
-  --color-accent-soft: rgba(184, 130, 36, 0.12);
+  --color-accent-strong: #82570e;
+  --color-accent-soft: rgba(184, 130, 36, 0.14);
   --color-emerald-deep: #0b3b32;
   --color-emerald-mid: #145c4e;
-  --color-glass: rgba(255, 255, 255, 0.78);
-  --shadow-card: 0 10px 30px -12px rgba(11, 59, 50, 0.12);
+  --color-glass: rgba(255, 255, 255, 0.82);
+  --shadow-card: 0 12px 34px -14px rgba(11, 59, 50, 0.14);
+  --shadow-glow-gold: 0 12px 32px -10px rgba(184, 130, 36, 0.28);
 }
 
 .dark {
-  --color-canvas: #061412;
-  --color-surface: #0b1f1c;
-  --color-surface-elevated: #102a26;
+  --color-canvas: #051210;
+  --color-surface: #0a1d1a;
+  --color-surface-elevated: #102924;
   --color-ink: #f4f1e8;
   --color-ink-muted: #a6bab4;
   --color-border: rgba(244, 241, 232, 0.11);
   --color-accent: #deb154;
   --color-accent-strong: #f0c76f;
   --color-accent-soft: rgba(222, 177, 84, 0.14);
-  --color-emerald-deep: #092c25;
-  --color-emerald-mid: #166556;
-  --color-glass: rgba(11, 31, 28, 0.76);
-  --shadow-card: 0 18px 40px -18px rgba(0, 0, 0, 0.55);
+  --color-emerald-deep: #082721;
+  --color-emerald-mid: #145e50;
+  --color-glass: rgba(10, 29, 26, 0.78);
+  --shadow-card: 0 22px 48px -18px rgba(0, 0, 0, 0.62);
+  --shadow-glow-gold: 0 14px 36px -10px rgba(222, 177, 84, 0.28);
 }
 
 @theme inline {
@@ -51,9 +53,21 @@
 
 @layer base {
   html {
-    font-family: "Vazirmatn", ui-sans-serif, system-ui, sans-serif;
+    font-family: "Vazirmatn", ui-sans-serif, system-ui, -apple-system, sans-serif;
     font-size: 16px;
     scroll-behavior: smooth;
+  }
+
+  html.reading-large {
+    font-size: 17.5px;
+  }
+
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 
   body {
@@ -80,10 +94,143 @@
 
 .glass-panel {
   background: var(--color-glass);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--color-border);
   box-shadow: var(--shadow-card);
+}
+
+/* افکت درخشش طلایی روی تیترهای کلیدی (سازگار با هر دو تم تاریک و روشن) */
+@keyframes goldShimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.text-gold-shimmer {
+  background-image: linear-gradient(110deg, #9c6b17 0%, #c9912b 38%, #8f5f10 70%, #b88224 100%);
+  background-size: 220% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: goldShimmer 7s ease-in-out infinite;
+}
+
+.dark .text-gold-shimmer {
+  background-image: linear-gradient(110deg, #cfa042 0%, #f7dc94 35%, #deb154 68%, #f3cf7b 100%);
+}
+
+/* افکت عبور نور روی دکمه‌های اقدام اصلی */
+.btn-sheen {
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-glow-gold);
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.2s ease, box-shadow 0.25s ease;
+}
+
+.btn-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.32) 48%,
+    transparent 76%
+  );
+  transform: translateX(130%);
+  transition: transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+
+.btn-sheen:hover::after {
+  transform: translateX(-130%);
+}
+
+.btn-sheen:active {
+  transform: scale(0.985);
+}
+
+/* خط طلایی نازک تزئینی بالای کارت‌های ویژه */
+.gold-top-accent {
+  position: relative;
+}
+
+.gold-top-accent::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 14%;
+  right: 14%;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, var(--color-accent), transparent);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+/* کارت بلیت دیجیتال صبحانه با برش کناری کلاسیک */
+.ticket-surface {
+  background:
+    radial-gradient(circle at 85% 12%, rgba(222, 177, 84, 0.16), transparent 46%),
+    radial-gradient(circle at 15% 88%, rgba(22, 101, 86, 0.32), transparent 52%),
+    linear-gradient(160deg, #0b2d26 0%, #071b17 55%, #061412 100%);
+  box-shadow: 0 24px 56px -20px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(244, 241, 232, 0.14);
+}
+
+.ticket-divider {
+  position: relative;
+  border-top: 1.5px dashed rgba(222, 177, 84, 0.32);
+}
+
+.ticket-divider::before,
+.ticket-divider::after {
+  content: "";
+  position: absolute;
+  top: -11px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background-color: var(--color-surface);
+  border: 1px solid rgba(222, 177, 84, 0.38);
+}
+
+.ticket-divider::before {
+  right: -34px;
+}
+
+.ticket-divider::after {
+  left: -34px;
+}
+
+/* کارت گذرنامه فلزی-هولوگرافیک ورودی ۱۴۰۵ */
+.holo-passport {
+  background:
+    radial-gradient(circle at 86% 14%, rgba(236, 196, 108, 0.24), transparent 44%),
+    radial-gradient(circle at 12% 88%, rgba(20, 118, 98, 0.36), transparent 52%),
+    linear-gradient(145deg, #0d362e 0%, #071d19 48%, #04110f 100%);
+  box-shadow:
+    0 28px 64px -22px rgba(0, 0, 0, 0.72),
+    0 0 0 1px rgba(222, 177, 84, 0.38),
+    inset 0 1px 0 rgba(255, 244, 214, 0.22);
+}
+
+/* پوشش گرادیانی تصویر معماری Hero برای خوانایی بی‌نقص متن در هر دو تم */
+.hero-arch-veil {
+  background: linear-gradient(
+    95deg,
+    rgba(247, 246, 241, 0.58) 0%,
+    rgba(247, 246, 241, 0.84) 48%,
+    rgba(247, 246, 241, 0.96) 82%
+  );
+}
+
+.dark .hero-arch-veil {
+  background: linear-gradient(
+    95deg,
+    rgba(5, 18, 16, 0.38) 0%,
+    rgba(5, 18, 16, 0.74) 48%,
+    rgba(5, 18, 16, 0.92) 82%
+  );
 }
 
 .tabular-nums {
@@ -106,8 +253,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-aurora {
+  .animate-aurora,
+  .text-gold-shimmer {
     animation: none;
+  }
+  .btn-sheen::after {
+    display: none;
   }
   * {
     scroll-behavior: auto !important;
@@ -129,4 +280,3 @@
     box-shadow: none !important;
   }
 }
-

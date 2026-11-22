@@ -1,4 +1,29 @@
-export type AdminRole = 'owner' | 'editor' | 'food_manager' | 'scanner';
+export type AdminRole = 'owner' | 'editor' | 'food_manager' | 'scanner' | 'desk';
+
+export type RegistrationStatus = 'authorized' | 'registered';
+
+export type CohortGroup =
+  | 'نوورود ۱۴۰۵'
+  | 'انجمن علمی'
+  | 'کانون / بسیج'
+  | 'خادم هیئت'
+  | 'سایر';
+
+export type ReportColumnKey =
+  | 'rowNum'
+  | 'studentNumber'
+  | 'cohortGroup'
+  | 'firstName'
+  | 'lastName'
+  | 'nationalId'
+  | 'phone'
+  | 'birthJalali'
+  | 'major'
+  | 'status'
+  | 'mealName'
+  | 'claimedAt'
+  | 'authorizedBy'
+  | 'note';
 
 export interface SiteSettings {
   siteTitle: string;
@@ -30,6 +55,7 @@ export interface SiteSettings {
   cadresPdfUrl: string;
   cadresPdfTitle: string;
   autoPurgeDays: number;
+  couponWalkinEnabled: boolean;
 }
 
 export interface ChecklistStep {
@@ -145,8 +171,18 @@ export interface MealItem {
 
 export interface StudentRecord {
   id: number;
+  studentNumber: string;
   firstName: string;
   lastName: string;
+  nationalId?: string;
+  phone?: string;
+  birthJalali?: string;
+  major?: string;
+  cohortGroup: string;
+  registrationStatus: RegistrationStatus;
+  authorizedBy?: string;
+  authorizedAt?: string;
+  registeredAt?: string;
   couponCode: string;
   note: string;
   active: boolean;
@@ -154,10 +190,37 @@ export interface StudentRecord {
   createdAt: string;
 }
 
+export interface DeskAuthorizedStudent {
+  id: number;
+  studentNumber: string;
+  fullName: string;
+  major: string;
+  cohortGroup: string;
+  registrationStatus: RegistrationStatus;
+  hasClaimed: boolean;
+  claimedMealName: string | null;
+  claimedAt: string | null;
+  authorizedBy: string;
+  authorizedAt: string;
+  note: string;
+  isDemo: boolean;
+}
+
+export interface CouponCheckResponse {
+  status: 'authorized' | 'registered' | 'not_found' | 'inactive';
+  studentNumber: string;
+  cohortGroup?: string;
+  is405?: boolean;
+  message: string;
+}
+
 export interface CouponLookupResult {
   studentId: number;
+  studentNumber?: string;
   firstName: string;
   lastName: string;
+  major?: string;
+  cohortGroup?: string;
   couponCode: string;
   note: string;
   activeMeals: MealItem[];
@@ -166,12 +229,16 @@ export interface CouponLookupResult {
   claimedMealName?: string | null;
   claimedDateJalali?: string | null;
   claimedAt?: string | null;
+  issuedByWalkin?: boolean;
 }
 
 export interface ScanClaimResponse {
   status: 'allowed' | 'already_claimed' | 'invalid';
   message: string;
   studentName?: string;
+  studentNumber?: string;
+  major?: string;
+  cohortGroup?: string;
   claimedAt?: string;
   mealName?: string;
   previousMealName?: string;
@@ -185,10 +252,14 @@ export interface ScanClaimResponse {
 
 export interface OfflineScanStudent {
   id: number;
+  studentNumber: string;
   firstName: string;
   lastName: string;
   firstNameNorm: string;
   lastNameNorm: string;
+  major: string;
+  cohortGroup: string;
+  registrationStatus: RegistrationStatus;
   couponCode: string;
   active: boolean;
   claimedAtByMeal: Record<number, string>;
@@ -200,6 +271,53 @@ export interface OfflinePendingClaim {
   mealId: number;
   scannedAtIso: string;
   studentName: string;
+}
+
+export interface DetailedBreakfastRecord {
+  id: number;
+  studentNumber: string;
+  cohortGroup: string;
+  is405: boolean;
+  firstName: string;
+  lastName: string;
+  nationalId: string;
+  phone: string;
+  birthJalali: string;
+  major: string;
+  registrationStatus: RegistrationStatus;
+  hasClaimed: boolean;
+  mealId: number | null;
+  mealName: string;
+  mealDateJalali: string;
+  claimedAt: string;
+  authorizedBy: string;
+  authorizedAt: string;
+  registeredAt: string;
+  couponCode: string;
+  note: string;
+  active: boolean;
+  isDemo: boolean;
+}
+
+export interface BreakfastAnalyticsSummary {
+  totalAuthorized: number;
+  registeredCount: number;
+  pendingFormCount: number;
+  claimedCount: number;
+  unclaimedWithCouponCount: number;
+  cohort405Count: number;
+  otherCohortCount: number;
+  claimRatePercent: number;
+  byMajor: { major: string; total: number; claimed: number }[];
+  byCohort: { cohortGroup: string; total: number; claimed: number }[];
+}
+
+export interface BreakfastReportFilters {
+  status: 'all' | 'claimed' | 'unclaimed_coupon' | 'pending_form';
+  cohort: 'all' | '405' | 'non_405';
+  major: string;
+  mealId: number | 'all';
+  q: string;
 }
 
 export interface StudentQuestion {

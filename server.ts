@@ -14,6 +14,8 @@ import {
   initDatabase,
   getSettings,
   saveSettings,
+  getCouponDailyCode,
+  setCouponDailyCode,
   logAudit,
 } from './server/db';
 import {
@@ -29,12 +31,35 @@ import {
   getSecretHealth,
   sanitizeSafeUrl,
   escapeCsvCell,
+  normalizePasscode,
+  verifyWalkinDailyCode,
 } from './server/security';
 import { normalizeNameCompact, searchFaqs, toPersianDigits } from './src/utils/persian';
 import { parseStudentsCsv, resolveOfflineClaimConflict } from './src/utils/coupon';
-import { parseAndValidateJalaliDate } from './src/utils/jalali';
+import { formatJalaliVerbose, parseAndValidateJalaliDate } from './src/utils/jalali';
+import {
+  COHORT_GROUP_OPTIONS,
+  isFreshman405Number,
+  normalizeStudentNumber,
+  validateIranianMobile,
+  validateIranianNationalId,
+  validateStudentNumber,
+} from './src/utils/studentValidation';
+import {
+  buildBreakfastExcelBuffer,
+  buildBreakfastGraphicHtml,
+  computeBreakfastAnalytics,
+  filterBreakfastRecords,
+  normalizeSelectedColumns,
+} from './server/breakfastReportExport';
 import { buildOfflinePortalHtml, collectOfflineSnapshot } from './server/offlineExport';
-import type { AdminRole } from './src/types/portal';
+import { buildDeskPromoPosterHtml, normalizePosterSiteUrl } from './server/deskPosterExport';
+import type {
+  AdminRole,
+  BreakfastReportFilters,
+  DetailedBreakfastRecord,
+  ReportColumnKey,
+} from './src/types/portal';
 
 initDatabase();
 
@@ -84,8 +109,8 @@ app.use(
   express.static(uploadsDir)
 );
 
-// جلوگیری از کش‌شدن پاسخ‌های حساس (نشست ادمین، لیست اسکنر و ژتون دانشجو) در مرورگر یا پروکسی
-app.use(['/api/admin', '/api/scan', '/api/coupon'], (_req, res, next) => {
+// جلوگیری از کش‌شدن پاسخ‌های حساس (نشست ادمین، میز استقبال، لیست اسکنر و ژتون دانشجو) در مرورگر یا پروکسی
+app.use(['/api/admin', '/api/scan', '/api/coupon', '/api/desk'], (_req, res, next) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
   res.setHeader('Pragma', 'no-cache');
   next();
@@ -340,6 +365,7 @@ const lookupSchema = z.object({
   firstName: z.string().min(2).max(60),
   lastName: z.string().min(2).max(60),
   birthJalali: z.string().min(8).max(12),
+  dailyCode: z.string().max(40).optional(),
   website: z.string().optional(), // honeypot
 });
 
@@ -382,7 +408,7 @@ app.post('/api/coupon/lookup', (req, res) => {
     return;
   }
 
-  const student = db
+  let student = db
     .prepare(
       'SELECT id, first_name, last_name, coupon_code, note, active FROM students WHERE birth_hash = ?'
     )
@@ -397,9 +423,91 @@ app.post('/api/coupon/lookup', (req, res) => {
       }
     | undefined;
 
-  if (!student || !student.active) {
+  let issuedByWalkin = false;
+
+  if (student && !student.active) {
     res.status(404).json({ error: genericError });
     return;
+  }
+
+  // حالت بدون لیست دانشگاه: صدور آنی ژتون با «کد روزانه میز استقبال»
+  if (!student) {
+    const currentSettings = getSettings();
+    if (!currentSettings.couponWalkinEnabled) {
+      res.status(404).json({ error: genericError });
+      return;
+    }
+
+    const submittedCode = (parsed.data.dailyCode || '').trim();
+    if (!submittedCode) {
+      res.status(400).json({
+        error:
+          'نام شما در لیست پیش‌ثبت‌شده یافت نشد. برای صدور آنی ژتون، «کد روزانه میز استقبال» را از مسئول میز بسیج/هیئت دریافت و وارد کنید.',
+      });
+      return;
+    }
+
+    const configuredCode = getCouponDailyCode();
+    if (!verifyWalkinDailyCode(submittedCode, configuredCode)) {
+      res.status(403).json({
+        error: 'کد روزانه میز استقبال صحیح نیست. لطفاً کد معتبر امروز را از مسئول میز استقبال بپرسید.',
+      });
+      return;
+    }
+
+    const dateCheck = parseAndValidateJalaliDate(parsed.data.birthJalali);
+    if (!dateCheck.valid || !dateCheck.parsed || dateCheck.parsed.jy < 1355 || dateCheck.parsed.jy > 1393) {
+      res.status(400).json({ error: 'تاریخ تولد شمسی واردشده معتبر نیست.' });
+      return;
+    }
+
+    const walkinRate = checkRateLimit(`coupon:walkin:${ip}`, 8, 15 * 60 * 1000);
+    if (!walkinRate.allowed) {
+      res.status(429).json({
+        error: 'تعداد صدور آنی از این دستگاه بیش از حد مجاز است. لطفاً چند دقیقه دیگر تلاش کنید.',
+      });
+      return;
+    }
+
+    const firstClean = parsed.data.firstName.trim();
+    const lastClean = parsed.data.lastName.trim();
+    const newCode = generateCouponCode();
+    const walkinNote = 'ثبت حضوری با کد روزانه میز استقبال';
+
+    const insertTx = db.transaction(() => {
+      db.prepare(
+        `INSERT OR IGNORE INTO students (first_name, last_name, first_name_norm, last_name_norm, birth_hash, coupon_code, note, active, is_demo)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0)`
+      ).run(
+        firstClean,
+        lastClean,
+        normalizeNameCompact(firstClean),
+        normalizeNameCompact(lastClean),
+        birthHash,
+        newCode,
+        walkinNote
+      );
+      return db
+        .prepare(
+          'SELECT id, first_name, last_name, coupon_code, note, active FROM students WHERE birth_hash = ?'
+        )
+        .get(birthHash) as {
+        id: number;
+        first_name: string;
+        last_name: string;
+        coupon_code: string;
+        note: string;
+        active: number;
+      };
+    });
+
+    student = insertTx();
+    if (!student || !student.active) {
+      res.status(404).json({ error: genericError });
+      return;
+    }
+    issuedByWalkin = true;
+    logAudit('walkin', 'WALKIN_ISSUE_COUPON', `صدور آنی ژتون #${student.id} با کد میز استقبال`, ip);
   }
 
   const activeMeals = (
@@ -431,7 +539,7 @@ app.post('/api/coupon/lookup', (req, res) => {
   const claimedMealIds = studentClaims.map((c) => c.meal_id);
   const firstClaim = studentClaims[0] || null;
 
-  res.json({
+    res.json({
     studentId: student.id,
     firstName: student.first_name,
     lastName: student.last_name,
@@ -443,8 +551,572 @@ app.post('/api/coupon/lookup', (req, res) => {
     claimedMealName: firstClaim?.meal_name ?? null,
     claimedDateJalali: firstClaim?.date_jalali ?? null,
     claimedAt: firstClaim?.claimed_at ?? null,
+    issuedByWalkin,
   });
 });
+
+// کمکی مشترک ساخت پاسخ کامل کارت ژتون دیجیتال برای یک دانشجو
+function buildCouponCardPayload(studentId: number) {
+  const stu = db
+    .prepare(
+      `SELECT id, student_number, first_name, last_name, major, cohort_group, coupon_code, note
+       FROM students WHERE id = ?`
+    )
+    .get(studentId) as
+    | {
+        id: number;
+        student_number: string;
+        first_name: string;
+        last_name: string;
+        major: string;
+        cohort_group: string;
+        coupon_code: string;
+        note: string;
+      }
+    | undefined;
+  if (!stu) return null;
+
+  const activeMeals = (
+    db.prepare('SELECT * FROM meals WHERE active = 1 ORDER BY id ASC').all() as Record<string, unknown>[]
+  ).map((m) => ({
+    id: m.id as number,
+    name: m.name as string,
+    dateJalali: m.date_jalali as string,
+    startTime: m.start_time as string,
+    endTime: m.end_time as string,
+    active: Boolean(m.active),
+  }));
+
+  const studentClaims = db
+    .prepare(
+      `SELECT c.meal_id, c.claimed_at, m.name AS meal_name, m.date_jalali
+       FROM claims c
+       LEFT JOIN meals m ON m.id = c.meal_id
+       WHERE c.student_id = ?
+       ORDER BY c.claimed_at ASC`
+    )
+    .all(stu.id) as {
+    meal_id: number;
+    claimed_at: string;
+    meal_name: string | null;
+    date_jalali: string | null;
+  }[];
+
+  const claimedMealIds = studentClaims.map((c) => c.meal_id);
+  const firstClaim = studentClaims[0] || null;
+
+  return {
+    studentId: stu.id,
+    studentNumber: stu.student_number || undefined,
+    firstName: stu.first_name,
+    lastName: stu.last_name,
+    major: stu.major || undefined,
+    cohortGroup: stu.cohort_group || undefined,
+    couponCode: stu.coupon_code,
+    note: stu.note,
+    activeMeals,
+    claimedMealIds,
+    hasClaimedAny: Boolean(firstClaim),
+    claimedMealName: firstClaim?.meal_name ?? null,
+    claimedDateJalali: firstClaim?.date_jalali ?? null,
+    claimedAt: firstClaim?.claimed_at ?? null,
+  };
+}
+
+// گام ۱ دانشجو: بررسی مجاز بودن شماره دانشجویی (بدون افشای هیچ اطلاعات شخصی!)
+app.post('/api/coupon/check-student-number', (req, res) => {
+  const ip = getClientIp(req);
+  const ipRate = checkRateLimit(`coupon:check:${ip}`, 25, 10 * 60 * 1000);
+  if (!ipRate.allowed) {
+    res.status(429).json({
+      error: `تعداد استعلام‌ها بیش از حد مجاز است. لطفاً ${toPersianDigits(
+        Math.ceil(ipRate.retryAfterSec / 60)
+      )} دقیقه دیگر تلاش کنید.`,
+    });
+    return;
+  }
+
+  const schema = z.object({
+    studentNumber: z.string().min(4).max(24),
+    website: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success || (parsed.data.website && parsed.data.website.trim() !== '')) {
+    res.status(400).json({ error: 'لطفاً شماره دانشجویی معتبر وارد کنید.' });
+    return;
+  }
+
+  const check = validateStudentNumber(parsed.data.studentNumber, { require405: false });
+  if (!check.valid) {
+    res.status(400).json({ error: check.error || 'شماره دانشجویی نامعتبر است.' });
+    return;
+  }
+
+  const row = db
+    .prepare(
+      'SELECT id, student_number, cohort_group, registration_status, active FROM students WHERE student_number = ?'
+    )
+    .get(check.normalized) as
+    | {
+        id: number;
+        student_number: string;
+        cohort_group: string;
+        registration_status: string;
+        active: number;
+      }
+    | undefined;
+
+  if (!row) {
+    res.json({
+      status: 'not_found',
+      studentNumber: check.normalized,
+      is405: check.is405,
+      message:
+        'این شماره دانشجویی هنوز در میز استقبال هیئت ثبت نشده است. لطفاً ابتدا به میز استقبال در لابی مراجعه کنید تا کد شما تایید و سبز شود.',
+    });
+    return;
+  }
+
+  if (!row.active) {
+    res.json({
+      status: 'inactive',
+      studentNumber: check.normalized,
+      is405: check.is405,
+      message: 'این شماره دانشجویی غیرفعال شده است. لطفاً با مسئول میز هیئت تماس بگیرید.',
+    });
+    return;
+  }
+
+  if (row.registration_status === 'registered') {
+    res.json({
+      status: 'registered',
+      studentNumber: check.normalized,
+      cohortGroup: row.cohort_group,
+      is405: check.is405,
+      message:
+        'فرم این شماره دانشجویی قبلاً تکمیل و ژتون صادر شده است. برای نمایش مجدد کارت QR، کد ملی خود را وارد کنید.',
+    });
+    return;
+  }
+
+  res.json({
+    status: 'authorized',
+    studentNumber: check.normalized,
+    cohortGroup: row.cohort_group,
+    is405: check.is405,
+    message:
+      'شماره دانشجویی شما تایید و سبز شد! لطفاً مشخصات زیر را تکمیل کنید تا کارت QR ژتون صبحانه بلافاصله برای شما صادر شود.',
+  });
+});
+
+// گام ۲ دانشجو: تکمیل مشخصات پس از سبز شدن شماره دانشجویی و صدور آنی کارت QR
+app.post('/api/coupon/register', (req, res) => {
+  const ip = getClientIp(req);
+  const ipRate = checkRateLimit(`coupon:reg:${ip}`, 12, 15 * 60 * 1000);
+  if (!ipRate.allowed) {
+    res.status(429).json({
+      error: 'تعداد درخواست‌های ثبت‌نام از این دستگاه بیش از حد مجاز است. لطفاً دقایقی دیگر تلاش کنید.',
+    });
+    return;
+  }
+
+  const schema = z.object({
+    studentNumber: z.string().min(8).max(20),
+    firstName: z.string().min(2).max(60),
+    lastName: z.string().min(2).max(60),
+    birthJalali: z.string().min(8).max(14),
+    nationalId: z.string().min(10).max(20),
+    phone: z.string().min(10).max(20),
+    major: z.string().min(2).max(90),
+    website: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success || (parsed.data.website && parsed.data.website.trim() !== '')) {
+    res.status(400).json({ error: 'لطفاً تمام فیلدهای فرم مشخصات را به‌درستی تکمیل کنید.' });
+    return;
+  }
+
+  const stuNumCheck = validateStudentNumber(parsed.data.studentNumber, { require405: false });
+  if (!stuNumCheck.valid) {
+    res.status(400).json({ error: stuNumCheck.error });
+    return;
+  }
+
+  const natCheck = validateIranianNationalId(parsed.data.nationalId);
+  if (!natCheck.valid) {
+    res.status(400).json({ error: natCheck.error });
+    return;
+  }
+
+  const phoneCheck = validateIranianMobile(parsed.data.phone);
+  if (!phoneCheck.valid) {
+    res.status(400).json({ error: phoneCheck.error });
+    return;
+  }
+
+  const dateCheck = parseAndValidateJalaliDate(parsed.data.birthJalali);
+  if (!dateCheck.valid || !dateCheck.parsed || dateCheck.parsed.jy < 1350 || dateCheck.parsed.jy > 1395) {
+    res.status(400).json({ error: 'تاریخ تولد شمسی واردشده معتبر نیست.' });
+    return;
+  }
+
+  const firstClean = parsed.data.firstName.trim();
+  const lastClean = parsed.data.lastName.trim();
+  const majorClean = parsed.data.major.trim();
+  const birthHash = computeBirthHash(firstClean, lastClean, dateCheck.normalized);
+  if (!birthHash) {
+    res.status(400).json({ error: 'خطا در پردازش نام و تاریخ تولد.' });
+    return;
+  }
+
+  const existing = db
+    .prepare(
+      'SELECT id, registration_status, active FROM students WHERE student_number = ?'
+    )
+    .get(stuNumCheck.normalized) as
+    | { id: number; registration_status: string; active: number }
+    | undefined;
+
+  if (!existing || !existing.active) {
+    res.status(404).json({
+      error: 'این شماره دانشجویی در لیست مجاز میز استقبال ثبت نشده است.',
+    });
+    return;
+  }
+
+  if (existing.registration_status === 'registered') {
+    res.status(409).json({
+      error: 'ژتون این شماره دانشجویی قبلاً صادر شده است. برای بازیابی کارت، کد ملی خود را وارد کنید.',
+    });
+    return;
+  }
+
+  // جلوگیری از ثبت یک کد ملی برای دو شماره دانشجویی مختلف
+  const dupNational = db
+    .prepare('SELECT id FROM students WHERE national_id = ? AND id != ? AND active = 1')
+    .get(natCheck.normalized, existing.id) as { id: number } | undefined;
+  if (dupNational) {
+    res.status(409).json({
+      error: 'با این کد ملی قبلاً ژتون صبحانه ثبت شده است. در صورت اشتباه با مسئول میز هیئت تماس بگیرید.',
+    });
+    return;
+  }
+
+  // جلوگیری از برخورد birth_hash با رکورد قدیمی دیگر
+  const dupHash = db
+    .prepare('SELECT id FROM students WHERE birth_hash = ? AND id != ?')
+    .get(birthHash, existing.id) as { id: number } | undefined;
+  const safeBirthHash = dupHash ? `${birthHash}:${stuNumCheck.normalized}` : birthHash;
+  const nowIso = new Date().toISOString();
+
+  db.prepare(
+    `UPDATE students
+     SET first_name = ?,
+         last_name = ?,
+         first_name_norm = ?,
+         last_name_norm = ?,
+         birth_jalali = ?,
+         birth_hash = ?,
+         national_id = ?,
+         phone = ?,
+         major = ?,
+         registration_status = 'registered',
+         registered_at = ?
+     WHERE id = ? AND registration_status = 'authorized'`
+  ).run(
+    firstClean,
+    lastClean,
+    normalizeNameCompact(firstClean),
+    normalizeNameCompact(lastClean),
+    dateCheck.normalized,
+    safeBirthHash,
+    natCheck.normalized,
+    phoneCheck.normalized,
+    majorClean,
+    nowIso,
+    existing.id
+  );
+
+  logAudit(
+    'student',
+    'COUPON_SELF_REGISTER',
+    `تکمیل فرم و صدور QR برای کد دانشجویی ${stuNumCheck.normalized} (${majorClean})`,
+    ip
+  );
+
+  const card = buildCouponCardPayload(existing.id);
+  res.json(card);
+});
+
+// بازیابی امن کارت QR صادرشده با تطبیق همزمان شماره دانشجویی + کد ملی
+app.post('/api/coupon/recover', (req, res) => {
+  const ip = getClientIp(req);
+  const ipRate = checkRateLimit(`coupon:recover:${ip}`, 10, 10 * 60 * 1000);
+  if (!ipRate.allowed) {
+    res.status(429).json({
+      error: 'تعداد تلاش‌های بازیابی بیش از حد مجاز است. لطفاً دقایقی دیگر تلاش کنید.',
+    });
+    return;
+  }
+
+  const schema = z.object({
+    studentNumber: z.string().min(8).max(20),
+    nationalId: z.string().min(10).max(20),
+    website: z.string().optional(),
+  });
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success || (parsed.data.website && parsed.data.website.trim() !== '')) {
+    res.status(400).json({ error: 'شماره دانشجویی و کد ملی ۱۰ رقمی را به‌درستی وارد کنید.' });
+    return;
+  }
+
+  const stuNum = normalizeStudentNumber(parsed.data.studentNumber);
+  const natCheck = validateIranianNationalId(parsed.data.nationalId);
+  if (!natCheck.valid) {
+    res.status(400).json({ error: 'شماره دانشجویی یا کد ملی تطابق ندارد.' });
+    return;
+  }
+
+  const row = db
+    .prepare(
+      `SELECT id FROM students
+       WHERE student_number = ? AND national_id = ? AND registration_status = 'registered' AND active = 1`
+    )
+    .get(stuNum, natCheck.normalized) as { id: number } | undefined;
+
+  if (!row) {
+    res.status(404).json({
+      error: 'شماره دانشجویی و کد ملی واردشده با هم تطابق ندارند. لطفاً دوباره بررسی کنید.',
+    });
+    return;
+  }
+
+  res.json(buildCouponCardPayload(row.id));
+});
+
+// ==========================================
+// 2.5 LOBBY WELCOME DESK OPERATOR & OWNER AUTHORIZATION
+// ==========================================
+
+app.get(
+  '/api/desk/authorized',
+  requireRole(['owner', 'desk']),
+  (req: AuthedRequest, res) => {
+    const isOwner = req.adminUser!.role === 'owner';
+    const qRaw = String(req.query.q || '').trim();
+    const qClean = normalizeStudentNumber(qRaw);
+    const qNorm = normalizeNameCompact(qRaw);
+
+    // اپراتور میز استقبال فقط شماره دانشجویی‌های ۴۰۵ را می‌بیند و هرگز به کد ملی/موبایل دسترسی ندارد
+    const rows = db
+      .prepare(
+        `SELECT s.id, s.student_number, s.first_name, s.last_name, s.major, s.cohort_group,
+                s.registration_status, s.authorized_by, s.authorized_at, s.note, s.is_demo,
+                c.claimed_at, m.name AS meal_name
+         FROM students s
+         LEFT JOIN claims c ON c.student_id = s.id
+         LEFT JOIN meals m ON m.id = c.meal_id
+         WHERE s.student_number != '' AND s.active = 1
+         ${isOwner ? '' : "AND s.student_number LIKE '405%'"}
+         ORDER BY s.id DESC`
+      )
+      .all() as {
+      id: number;
+      student_number: string;
+      first_name: string;
+      last_name: string;
+      major: string;
+      cohort_group: string;
+      registration_status: 'authorized' | 'registered';
+      authorized_by: string;
+      authorized_at: string;
+      note: string;
+      is_demo: number;
+      claimed_at: string | null;
+      meal_name: string | null;
+    }[];
+
+    const mapped = rows.map((r) => ({
+      id: r.id,
+      studentNumber: r.student_number,
+      fullName: `${r.first_name} ${r.last_name}`.trim(),
+      major: r.major || '',
+      cohortGroup: r.cohort_group || (isFreshman405Number(r.student_number) ? 'نوورود ۱۴۰۵' : 'سایر'),
+      registrationStatus: r.registration_status,
+      hasClaimed: Boolean(r.claimed_at),
+      claimedMealName: r.meal_name || null,
+      claimedAt: r.claimed_at || null,
+      authorizedBy: r.authorized_by || '',
+      authorizedAt: r.authorized_at || '',
+      note: r.note || '',
+      isDemo: Boolean(r.is_demo),
+    }));
+
+    const stats = {
+      total: mapped.length,
+      pendingForm: mapped.filter((i) => i.registrationStatus === 'authorized').length,
+      registered: mapped.filter((i) => i.registrationStatus === 'registered').length,
+      claimed: mapped.filter((i) => i.hasClaimed).length,
+    };
+
+    const filtered = !qRaw
+      ? mapped
+      : mapped.filter(
+          (item) =>
+            item.studentNumber.includes(qClean || qRaw) ||
+            normalizeNameCompact(item.fullName).includes(qNorm) ||
+            item.major.includes(qRaw) ||
+            item.cohortGroup.includes(qRaw)
+        );
+
+    res.json({
+      items: filtered,
+      stats,
+      canAuthorizeNon405: isOwner,
+    });
+  }
+);
+
+app.post(
+  '/api/desk/authorize',
+  requireCsrfHeader,
+  requireRole(['owner', 'desk']),
+  (req: AuthedRequest, res) => {
+    const isOwner = req.adminUser!.role === 'owner';
+    const schema = z.object({
+      studentNumber: z.string().min(4).max(24),
+      cohortGroup: z.enum(COHORT_GROUP_OPTIONS).optional(),
+      note: z.string().max(120).optional().default(''),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'شماره دانشجویی واردشده معتبر نیست.' });
+      return;
+    }
+
+    // اجرای سخت‌گیرانه RBAC در سرور: اپراتور میز استقبال فقط و فقط کد شروع‌شونده با ۴۰۵ را می‌تواند ثبت کند!
+    const validation = validateStudentNumber(parsed.data.studentNumber, {
+      require405: !isOwner,
+    });
+    if (!validation.valid) {
+      const statusCode = !isOwner && !validation.is405 && /^\d{8,12}$/.test(validation.normalized) ? 403 : 400;
+      res.status(statusCode).json({ error: validation.error });
+      return;
+    }
+
+    const exists = db
+      .prepare('SELECT id, registration_status, first_name, last_name FROM students WHERE student_number = ?')
+      .get(validation.normalized) as
+      | { id: number; registration_status: string; first_name: string; last_name: string }
+      | undefined;
+
+    if (exists) {
+      const statusText =
+        exists.registration_status === 'registered'
+          ? `قبلاً ثبت و فرم آن توسط «${exists.first_name} ${exists.last_name}» تکمیل شده است.`
+          : 'این شماره دانشجویی قبلاً در میز استقبال ثبت و سبز شده است (در انتظار تکمیل فرم دانشجو).';
+      res.status(409).json({ error: statusText });
+      return;
+    }
+
+    const cohortGroup = isOwner
+      ? parsed.data.cohortGroup || (validation.is405 ? 'نوورود ۱۴۰۵' : 'انجمن علمی')
+      : 'نوورود ۱۴۰۵';
+
+    const nowIso = new Date().toISOString();
+    const couponCode = generateCouponCode();
+    const pendingHash = `pending:${validation.normalized}`;
+    const noteClean = (parsed.data.note || '').trim();
+
+    const info = db
+      .prepare(
+        `INSERT INTO students (
+          student_number, first_name, last_name, first_name_norm, last_name_norm,
+          birth_hash, coupon_code, national_id, phone, birth_jalali, major,
+          cohort_group, registration_status, authorized_by, authorized_at, registered_at,
+          note, active, is_demo
+        ) VALUES (?, '', '', '', '', ?, ?, '', '', '', '', ?, 'authorized', ?, ?, '', ?, 1, 0)`
+      )
+      .run(
+        validation.normalized,
+        pendingHash,
+        couponCode,
+        cohortGroup,
+        req.adminUser!.displayName || req.adminUser!.username,
+        nowIso,
+        noteClean
+      );
+
+    logAudit(
+      req.adminUser!.username,
+      validation.is405 ? 'AUTHORIZE_STUDENT_405' : 'AUTHORIZE_STUDENT_VIP',
+      `تایید شماره دانشجویی ${validation.normalized} (${cohortGroup})`,
+      getClientIp(req)
+    );
+
+    res.status(201).json({
+      ok: true,
+      message: `شماره دانشجویی ${toPersianDigits(validation.normalized)} تایید و سبز شد! دانشجو اکنون می‌تواند فرم دریافت ژتون را تکمیل کند.`,
+      item: {
+        id: Number(info.lastInsertRowid),
+        studentNumber: validation.normalized,
+        fullName: '',
+        major: '',
+        cohortGroup,
+        registrationStatus: 'authorized' as const,
+        hasClaimed: false,
+        claimedMealName: null,
+        claimedAt: null,
+        authorizedBy: req.adminUser!.displayName || req.adminUser!.username,
+        authorizedAt: nowIso,
+        note: noteClean,
+        isDemo: false,
+      },
+    });
+  }
+);
+
+app.delete(
+  '/api/desk/authorized/:id',
+  requireCsrfHeader,
+  requireRole(['owner', 'desk']),
+  (req: AuthedRequest, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) {
+      res.status(400).json({ error: 'شناسه نامعتبر است.' });
+      return;
+    }
+    const row = db
+      .prepare('SELECT id, student_number, registration_status FROM students WHERE id = ?')
+      .get(id) as { id: number; student_number: string; registration_status: string } | undefined;
+    if (!row) {
+      res.status(404).json({ error: 'رکورد یافت نشد.' });
+      return;
+    }
+    if (req.adminUser!.role === 'desk') {
+      if (!row.student_number.startsWith('405') || row.registration_status !== 'authorized') {
+        res.status(403).json({
+          error: 'اپراتور میز استقبال فقط می‌تواند کدهای اشتباه تایپ‌شده ۴۰۵ را پیش از تکمیل فرم دانشجو حذف کند.',
+        });
+        return;
+      }
+    } else if (row.registration_status !== 'authorized') {
+      res.status(409).json({
+        error: 'این دانشجو فرم خود را تکمیل کرده است؛ در صورت نیاز از تب دانشجویان پنل مدیریت حذف کنید.',
+      });
+      return;
+    }
+
+    db.prepare('DELETE FROM students WHERE id = ?').run(id);
+    logAudit(
+      req.adminUser!.username,
+      'DELETE_AUTHORIZED_CODE',
+      `حذف کد مجازشده ثبت‌نشده ${row.student_number}`,
+      getClientIp(req)
+    );
+    res.json({ ok: true });
+  }
+);
 
 app.post('/api/questions', (req, res) => {
   const ip = getClientIp(req);
@@ -637,7 +1309,7 @@ app.get('/api/admin/me', (req: AuthedRequest, res) => {
 app.post(
   '/api/admin/change-password',
   requireCsrfHeader,
-  requireRole(['owner', 'editor', 'food_manager', 'scanner']),
+  requireRole(['owner', 'editor', 'food_manager', 'scanner', 'desk']),
   (req: AuthedRequest, res) => {
     const ip = getClientIp(req);
     if (!checkRateLimit(`chgpass:${req.adminUser!.id}:${ip}`, 6, 15 * 60 * 1000).allowed) {
@@ -681,7 +1353,11 @@ app.post(
 // ==========================================
 
 function getMealStats(mealId: number) {
-  const total = (db.prepare('SELECT COUNT(*) as c FROM students WHERE active = 1').get() as { c: number }).c;
+  const total = (
+    db
+      .prepare("SELECT COUNT(*) as c FROM students WHERE active = 1 AND registration_status = 'registered'")
+      .get() as { c: number }
+  ).c;
   const claimed = (db.prepare('SELECT COUNT(*) as c FROM claims WHERE meal_id = ?').get(mealId) as { c: number }).c;
   const totalClaimedAnyDay = (
     db.prepare(
@@ -716,14 +1392,21 @@ app.get('/api/scan/meals', requireRole(['owner', 'food_manager', 'scanner']), (_
 app.get('/api/scan/list', requireRole(['owner', 'food_manager', 'scanner']), (_req, res) => {
   const students = db
     .prepare(
-      'SELECT id, first_name, last_name, first_name_norm, last_name_norm, coupon_code, active FROM students'
+      `SELECT id, student_number, first_name, last_name, first_name_norm, last_name_norm,
+              major, cohort_group, registration_status, coupon_code, active
+       FROM students
+       WHERE registration_status = 'registered'`
     )
     .all() as {
     id: number;
+    student_number: string;
     first_name: string;
     last_name: string;
     first_name_norm: string;
     last_name_norm: string;
+    major: string;
+    cohort_group: string;
+    registration_status: 'authorized' | 'registered';
     coupon_code: string;
     active: number;
   }[];
@@ -742,10 +1425,14 @@ app.get('/api/scan/list', requireRole(['owner', 'food_manager', 'scanner']), (_r
     syncedAt: new Date().toISOString(),
     students: students.map((s) => ({
       id: s.id,
+      studentNumber: s.student_number || '',
       firstName: s.first_name,
       lastName: s.last_name,
       firstNameNorm: s.first_name_norm,
       lastNameNorm: s.last_name_norm,
+      major: s.major || '',
+      cohortGroup: s.cohort_group || 'نوورود ۱۴۰۵',
+      registrationStatus: s.registration_status || 'registered',
       couponCode: s.coupon_code,
       active: Boolean(s.active),
       claimedAtByMeal: claimMap.get(s.id) || {},
@@ -780,30 +1467,45 @@ app.post(
     }
 
     const student = db
-      .prepare('SELECT id, first_name, last_name, active FROM students WHERE coupon_code = ?')
+      .prepare(
+        `SELECT id, student_number, first_name, last_name, major, cohort_group, registration_status, active
+         FROM students WHERE coupon_code = ?`
+      )
       .get(parsed.data.couponCode.trim()) as
-      | { id: number; first_name: string; last_name: string; active: number }
+      | {
+          id: number;
+          student_number: string;
+          first_name: string;
+          last_name: string;
+          major: string;
+          cohort_group: string;
+          registration_status: string;
+          active: number;
+        }
       | undefined;
 
-    if (!student || !student.active) {
+    if (!student || !student.active || student.registration_status !== 'registered') {
       db.prepare(
         'INSERT INTO suspicious_attempts (student_id, meal_id, attempt_type, detail, ip) VALUES (?, ?, ?, ?, ?)'
       ).run(
         student?.id ?? null,
         meal.id,
         'invalid_code',
-        `کد نامعتبر یا غیرفعال: ${parsed.data.couponCode.slice(0, 14)}`,
+        `کد نامعتبر، تکمیل‌نشده یا غیرفعال: ${parsed.data.couponCode.slice(0, 14)}`,
         ip
       );
       res.json({
         status: 'invalid',
-        message: 'نامعتبر یا غیرفعال',
+        message:
+          student && student.registration_status !== 'registered'
+            ? 'فرم مشخصات دانشجو هنوز تکمیل نشده است'
+            : 'نامعتبر یا غیرفعال',
         stats: getMealStats(meal.id),
       });
       return;
     }
 
-    const studentName = `${student.first_name} ${student.last_name}`;
+    const studentName = `${student.first_name} ${student.last_name}`.trim();
     const nowIso = parsed.data.claimedAtIso || new Date().toISOString();
 
     // بررسی اتمیک قانون یک‌نوبته بودن صبحانه در کل روزهای ثبت‌نام (جلوگیری از دریافت در روز دوم/سوم)
@@ -865,6 +1567,9 @@ app.post(
           ? 'این دانشجو قبلاً در همین وعده صبحانه دریافت کرده است.'
           : `این دانشجو قبلاً در «${prevName}»${prevDate ? ` (${prevDate})` : ''} صبحانه دریافت کرده است. سهمیه هر نوورودی در کل روزهای ثبت‌نام فقط یک نوبت (در همان روز ثبت‌نام) است.`,
         studentName,
+        studentNumber: student.student_number || undefined,
+        major: student.major || undefined,
+        cohortGroup: student.cohort_group || undefined,
         claimedAt: outcome.existing.claimed_at,
         mealName: prevName,
         previousMealName: prevName,
@@ -878,6 +1583,9 @@ app.post(
       status: 'allowed',
       message: 'مجاز — سهمیه یک‌نوبته صبحانه ثبت شد',
       studentName,
+      studentNumber: student.student_number || undefined,
+      major: student.major || undefined,
+      cohortGroup: student.cohort_group || undefined,
       claimedAt: nowIso,
       mealName: meal.name,
       stats: getMealStats(meal.id),
@@ -1058,6 +1766,56 @@ app.post(
   }
 );
 
+// تنظیمات «حالت بدون لیست دانشگاه» (صدور آنی ژتون با کد روزانه میز استقبال)
+app.get(
+  '/api/admin/walkin-config',
+  requireRole(['owner', 'food_manager']),
+  (_req, res) => {
+    const settings = getSettings();
+    res.json({
+      couponWalkinEnabled: Boolean(settings.couponWalkinEnabled),
+      dailyCode: getCouponDailyCode(),
+    });
+  }
+);
+
+app.put(
+  '/api/admin/walkin-config',
+  requireCsrfHeader,
+  requireRole(['owner', 'food_manager']),
+  (req: AuthedRequest, res) => {
+    const schema = z.object({
+      couponWalkinEnabled: z.boolean(),
+      dailyCode: z.string().max(40).optional().default(''),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: 'ورودی تنظیمات حالت بدون لیست معتبر نیست.' });
+      return;
+    }
+    const cleanCode = normalizePasscode(parsed.data.dailyCode);
+    if (parsed.data.couponWalkinEnabled && cleanCode.length < 4) {
+      res.status(400).json({
+        error: 'برای فعال‌سازی حالت بدون لیست، کد روزانه میز استقبال باید حداقل ۴ کاراکتر (عدد یا حروف) باشد.',
+      });
+      return;
+    }
+    saveSettings({ couponWalkinEnabled: parsed.data.couponWalkinEnabled });
+    setCouponDailyCode(parsed.data.dailyCode.trim());
+    clearPublicCache();
+    logAudit(
+      req.adminUser!.username,
+      'UPDATE_WALKIN_CONFIG',
+      `تغییر وضعیت صدور آنی با کد روزانه: ${parsed.data.couponWalkinEnabled ? 'فعال' : 'غیرفعال'}`,
+      getClientIp(req)
+    );
+    res.json({
+      couponWalkinEnabled: parsed.data.couponWalkinEnabled,
+      dailyCode: getCouponDailyCode(),
+    });
+  }
+);
+
 // مدیریت دانشجویان (بدون ذخیره تاریخ تولد خام)
 app.get(
   '/api/admin/students',
@@ -1065,13 +1823,28 @@ app.get(
   (req, res) => {
     const q = String(req.query.q || '').trim();
     const rows = db
-      .prepare('SELECT id, first_name, last_name, coupon_code, note, active, is_demo, created_at FROM students ORDER BY id DESC')
+      .prepare(
+        `SELECT id, student_number, first_name, last_name, national_id, phone, birth_jalali,
+                major, cohort_group, registration_status, authorized_by, authorized_at, registered_at,
+                coupon_code, note, active, is_demo, created_at
+         FROM students ORDER BY id DESC`
+      )
       .all() as Record<string, unknown>[];
 
     const mapped = rows.map((r) => ({
       id: r.id as number,
+      studentNumber: (r.student_number as string) || '',
       firstName: r.first_name as string,
       lastName: r.last_name as string,
+      nationalId: (r.national_id as string) || '',
+      phone: (r.phone as string) || '',
+      birthJalali: (r.birth_jalali as string) || '',
+      major: (r.major as string) || '',
+      cohortGroup: (r.cohort_group as string) || 'نوورود ۱۴۰۵',
+      registrationStatus: ((r.registration_status as string) || 'registered') as 'authorized' | 'registered',
+      authorizedBy: (r.authorized_by as string) || '',
+      authorizedAt: (r.authorized_at as string) || '',
+      registeredAt: (r.registered_at as string) || '',
       couponCode: r.coupon_code as string,
       note: r.note as string,
       active: Boolean(r.active),
@@ -1088,6 +1861,10 @@ app.get(
       mapped.filter(
         (s) =>
           normalizeNameCompact(s.firstName + s.lastName).includes(qNorm) ||
+          s.studentNumber.includes(q) ||
+          s.nationalId.includes(q) ||
+          s.phone.includes(q) ||
+          s.major.includes(q) ||
           s.couponCode.toLowerCase().includes(q.toLowerCase()) ||
           s.note.includes(q)
       )
@@ -1366,6 +2143,371 @@ app.get('/api/admin/reports/breakfast.csv', requireRole(['owner', 'food_manager'
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="breakfast-report-meal-${mealId}.csv"`);
   res.send('\uFEFF' + header + body);
+});
+
+// ==========================================
+// 5.5 EXECUTIVE BREAKFAST ANALYTICS & WOW GRAPHIC EXPORTS (XLSX / HTML / PDF)
+// ==========================================
+
+function loadDetailedBreakfastRecords(): DetailedBreakfastRecord[] {
+  const rows = db
+    .prepare(
+      `SELECT s.id, s.student_number, s.cohort_group, s.first_name, s.last_name,
+              s.national_id, s.phone, s.birth_jalali, s.major, s.registration_status,
+              s.authorized_by, s.authorized_at, s.registered_at, s.coupon_code, s.note,
+              s.active, s.is_demo,
+              c.meal_id, c.claimed_at,
+              m.name AS meal_name, m.date_jalali AS meal_date_jalali
+       FROM students s
+       LEFT JOIN claims c ON c.student_id = s.id
+       LEFT JOIN meals m ON m.id = c.meal_id
+       WHERE s.active = 1
+       ORDER BY CASE WHEN c.claimed_at IS NOT NULL THEN 0 ELSE 1 END ASC, c.claimed_at DESC, s.id DESC`
+    )
+    .all() as {
+    id: number;
+    student_number: string;
+    cohort_group: string;
+    first_name: string;
+    last_name: string;
+    national_id: string;
+    phone: string;
+    birth_jalali: string;
+    major: string;
+    registration_status: 'authorized' | 'registered';
+    authorized_by: string;
+    authorized_at: string;
+    registered_at: string;
+    coupon_code: string;
+    note: string;
+    active: number;
+    is_demo: number;
+    meal_id: number | null;
+    claimed_at: string | null;
+    meal_name: string | null;
+    meal_date_jalali: string | null;
+  }[];
+
+  return rows.map((r) => {
+    const stuNum = r.student_number || '';
+    const is405 = stuNum ? isFreshman405Number(stuNum) : (r.cohort_group || 'نوورود ۱۴۰۵') === 'نوورود ۱۴۰۵';
+    return {
+      id: r.id,
+      studentNumber: stuNum,
+      cohortGroup: r.cohort_group || (is405 ? 'نوورود ۱۴۰۵' : 'سایر'),
+      is405,
+      firstName: r.first_name || '',
+      lastName: r.last_name || '',
+      nationalId: r.national_id || '',
+      phone: r.phone || '',
+      birthJalali: r.birth_jalali || '',
+      major: r.major || '',
+      registrationStatus: r.registration_status || 'registered',
+      hasClaimed: Boolean(r.claimed_at),
+      mealId: r.meal_id ?? null,
+      mealName: r.meal_name || '',
+      mealDateJalali: r.meal_date_jalali || '',
+      claimedAt: r.claimed_at || '',
+      authorizedBy: r.authorized_by || '',
+      authorizedAt: r.authorized_at || '',
+      registeredAt: r.registered_at || '',
+      couponCode: r.coupon_code || '',
+      note: r.note || '',
+      active: Boolean(r.active),
+      isDemo: Boolean(r.is_demo),
+    };
+  });
+}
+
+app.get(
+  '/api/admin/reports/breakfast-detailed',
+  requireRole(['owner', 'food_manager']),
+  (_req, res) => {
+    const records = loadDetailedBreakfastRecords();
+    const analytics = computeBreakfastAnalytics(records);
+    const meals = (db.prepare('SELECT * FROM meals ORDER BY id ASC').all() as Record<string, unknown>[]).map((m) => ({
+      id: m.id as number,
+      name: m.name as string,
+      dateJalali: m.date_jalali as string,
+      startTime: m.start_time as string,
+      endTime: m.end_time as string,
+      active: Boolean(m.active),
+      ...getMealStats(m.id as number),
+    }));
+    const suspicious = db
+      .prepare('SELECT * FROM suspicious_attempts ORDER BY id DESC LIMIT 50')
+      .all();
+
+    res.json({ records, analytics, meals, suspicious });
+  }
+);
+
+interface BreakfastExportTokenEntry {
+  buffer: Buffer;
+  contentType: string;
+  filename: string;
+  inlinePreview: boolean;
+  expiresAt: number;
+}
+const breakfastExportTokens = new Map<string, BreakfastExportTokenEntry>();
+
+function pruneBreakfastExportTokens() {
+  const now = Date.now();
+  for (const [k, v] of breakfastExportTokens.entries()) {
+    if (v.expiresAt <= now) breakfastExportTokens.delete(k);
+  }
+  while (breakfastExportTokens.size > 40) {
+    const oldest = breakfastExportTokens.keys().next().value;
+    if (!oldest) break;
+    breakfastExportTokens.delete(oldest);
+  }
+}
+
+app.post(
+  '/api/admin/reports/export-token',
+  requireCsrfHeader,
+  requireRole(['owner', 'food_manager']),
+  async (req: AuthedRequest, res) => {
+    try {
+      pruneBreakfastExportTokens();
+      const body = (req.body || {}) as {
+        format?: 'xlsx' | 'html' | 'pdf';
+        columns?: ReportColumnKey[];
+        filters?: Partial<BreakfastReportFilters>;
+        title?: string;
+      };
+      const format = body.format === 'xlsx' || body.format === 'pdf' ? body.format : 'html';
+      const selectedColumns = normalizeSelectedColumns(body.columns);
+      const allRecords = loadDetailedBreakfastRecords();
+      const filtered = filterBreakfastRecords(allRecords, body.filters || {});
+      const settings = getSettings();
+
+      const statusLabels: Record<string, string> = {
+        all: 'همه وضعیت‌ها',
+        claimed: 'فقط صبحانه خورده‌ها',
+        unclaimed_coupon: 'فقط ژتون‌دارهای نخورده',
+        pending_form: 'فقط منتظران تکمیل فرم',
+      };
+      const cohortLabels: Record<string, string> = {
+        all: 'همه ورودی‌ها',
+        '405': 'فقط نوورودی ۴۰۵',
+        non_405: 'فقط انجمن/کانون و سایر ورودی‌ها',
+      };
+      const fStatus = body.filters?.status || 'all';
+      const fCohort = body.filters?.cohort || 'all';
+      const fMajor = body.filters?.major && body.filters.major !== 'همه' ? ` · رشته: ${body.filters.major}` : '';
+      const filterSummary = `فیلتر: ${statusLabels[fStatus] || 'همه'} · ${cohortLabels[fCohort] || 'همه'}${fMajor}`;
+
+      const meta = {
+        title: (body.title || 'گزارش رسمی پذیرایی صبحانه نوورودی‌ها').trim().slice(0, 120),
+        universityName: settings.universityName,
+        exportedBy: req.adminUser!.displayName || req.adminUser!.username,
+        generatedAtLabel: formatJalaliVerbose(new Date()),
+        filterSummary,
+        basijLogoUrl: settings.basijLogoUrl,
+        heyatLogoUrl: settings.heyatLogoUrl,
+        uploadsDir,
+      };
+
+      const stamp = new Date().toISOString().slice(0, 10);
+      let buffer: Buffer;
+      let contentType: string;
+      let filename: string;
+      let inlinePreview = false;
+
+      if (format === 'xlsx') {
+        buffer = await buildBreakfastExcelBuffer(filtered, selectedColumns, meta);
+        contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        filename = `gonabad-breakfast-report-${stamp}.xlsx`;
+      } else {
+        const html = buildBreakfastGraphicHtml(
+          filtered,
+          selectedColumns,
+          meta,
+          format === 'pdf'
+        );
+        buffer = Buffer.from(html, 'utf8');
+        contentType = 'text/html; charset=utf-8';
+        filename = `gonabad-breakfast-report-${stamp}.html`;
+        inlinePreview = true;
+      }
+
+      const token = crypto.randomBytes(24).toString('hex');
+      breakfastExportTokens.set(token, {
+        buffer,
+        contentType,
+        filename,
+        inlinePreview,
+        expiresAt: Date.now() + 15 * 60 * 1000,
+      });
+
+      logAudit(
+        req.adminUser!.username,
+        `EXPORT_BREAKFAST_${format.toUpperCase()}`,
+        `خروجی ${format.toUpperCase()} گزارش صبحانه (${filtered.length} رکورد، ${selectedColumns.length} ستون)`,
+        getClientIp(req)
+      );
+
+      res.json({
+        token,
+        filename,
+        sizeKb: Math.max(1, Math.round(buffer.byteLength / 1024)),
+        downloadUrl: `/downloads/breakfast-report/${token}?dl=1`,
+        previewUrl: `/downloads/breakfast-report/${token}?preview=1`,
+        recordCount: filtered.length,
+      });
+    } catch (err) {
+      console.error('Breakfast report export failed:', err);
+      res.status(500).json({ error: 'خطا در تولید فایل گزارش صبحانه.' });
+    }
+  }
+);
+
+app.get('/downloads/breakfast-report/:token', (req, res) => {
+  pruneBreakfastExportTokens();
+  const token = String(req.params.token || '');
+  const entry = breakfastExportTokens.get(token);
+  if (!entry || entry.expiresAt <= Date.now()) {
+    res
+      .status(404)
+      .type('text/html; charset=utf-8')
+      .send(
+        '<!doctype html><html lang="fa" dir="rtl"><body style="font-family:Tahoma,sans-serif;background:#071714;color:#f4f1e8;padding:32px;text-align:center"><h2>لینک گزارش منقضی شده است</h2><p>لطفاً دوباره از پنل مدیریت دکمه خروجی را بزنید.</p></body></html>'
+      );
+    return;
+  }
+
+  const isPreview = req.query.preview === '1' && entry.inlinePreview;
+  res.removeHeader('X-Download-Options');
+  res.removeHeader('Content-Security-Policy');
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  if (isPreview) {
+    res.setHeader('Content-Type', entry.contentType);
+    res.setHeader('Content-Disposition', `inline; filename="${entry.filename}"`);
+  } else {
+    res.setHeader(
+      'Content-Type',
+      entry.contentType.includes('spreadsheet') ? entry.contentType : 'application/octet-stream'
+    );
+    res.setHeader('Content-Disposition', `attachment; filename="${entry.filename}"`);
+  }
+  res.send(entry.buffer);
+});
+
+// ---------------------------------------------------------------------------
+// خروجی پوستر A4 و ۴ تراکت تبلیغاتی قابل چاپ دانشگاه در پنل میز استقبال (/desk)
+// ---------------------------------------------------------------------------
+interface DeskPosterTokenEntry {
+  buffer: Buffer;
+  filename: string;
+  expiresAt: number;
+}
+const deskPosterTokens = new Map<string, DeskPosterTokenEntry>();
+
+function pruneDeskPosterTokens() {
+  const now = Date.now();
+  for (const [k, v] of deskPosterTokens.entries()) {
+    if (v.expiresAt <= now) deskPosterTokens.delete(k);
+  }
+  while (deskPosterTokens.size > 20) {
+    const oldest = deskPosterTokens.keys().next().value;
+    if (!oldest) break;
+    deskPosterTokens.delete(oldest);
+  }
+}
+
+app.post(
+  '/api/desk/poster-token',
+  requireCsrfHeader,
+  requireRole(['owner', 'desk', 'food_manager']),
+  async (req: AuthedRequest, res) => {
+    try {
+      pruneDeskPosterTokens();
+      const body = (req.body || {}) as { siteUrl?: string; autoPrint?: boolean };
+      const proto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https')
+        .split(',')[0]
+        .trim();
+      const host = String(req.headers['x-forwarded-host'] || req.get('host') || 'gonabad.ac.ir')
+        .split(',')[0]
+        .trim();
+      const fallbackUrl = `${proto}://${host}`;
+      const siteUrl = normalizePosterSiteUrl(body.siteUrl?.trim() ? body.siteUrl : fallbackUrl);
+      const settings = getSettings();
+
+      const html = await buildDeskPromoPosterHtml({
+        siteUrl,
+        siteTitle: settings.siteTitle,
+        universityName: settings.universityName,
+        basijLogoUrl: settings.basijLogoUrl,
+        heyatLogoUrl: settings.heyatLogoUrl,
+        uploadsDir,
+        generatedAtLabel: formatJalaliVerbose(new Date()),
+        autoPrint: Boolean(body.autoPrint),
+      });
+
+      const buffer = Buffer.from(html, 'utf8');
+      const stamp = new Date().toISOString().slice(0, 10);
+      const filename = `gonabad-campus-poster-flyers-${stamp}.html`;
+      const token = crypto.randomBytes(24).toString('hex');
+      deskPosterTokens.set(token, {
+        buffer,
+        filename,
+        expiresAt: Date.now() + 15 * 60 * 1000,
+      });
+
+      logAudit(
+        req.adminUser!.username,
+        'EXPORT_DESK_POSTER',
+        `تولید پوستر A4 و ۴ تراکت تبلیغاتی دانشگاه (${siteUrl})`,
+        getClientIp(req)
+      );
+
+      res.json({
+        token,
+        filename,
+        sizeKb: Math.max(1, Math.round(buffer.byteLength / 1024)),
+        downloadUrl: `/downloads/desk-poster/${token}?dl=1`,
+        previewUrl: `/downloads/desk-poster/${token}?preview=1`,
+      });
+    } catch (err) {
+      console.error('Desk promo poster export failed:', err);
+      res.status(500).json({ error: 'خطا در تولید فایل پوستر و تراکت تبلیغاتی.' });
+    }
+  }
+);
+
+app.get('/downloads/desk-poster/:token', (req, res) => {
+  pruneDeskPosterTokens();
+  const token = String(req.params.token || '');
+  const entry = deskPosterTokens.get(token);
+  if (!entry || entry.expiresAt <= Date.now()) {
+    res
+      .status(404)
+      .type('text/html; charset=utf-8')
+      .send(
+        '<!doctype html><html lang="fa" dir="rtl"><body style="font-family:Tahoma,sans-serif;background:#071714;color:#f4f1e8;padding:32px;text-align:center"><h2>لینک پوستر قابل چاپ منقضی شده است</h2><p>لطفاً دوباره از پنل میز استقبال دکمه تولید پوستر را بزنید.</p></body></html>'
+      );
+    return;
+  }
+
+  const isPreview = req.query.preview === '1';
+  res.removeHeader('X-Download-Options');
+  res.removeHeader('Content-Security-Policy');
+  res.removeHeader('X-Frame-Options');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  if (isPreview) {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `inline; filename="${entry.filename}"`);
+  } else {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${entry.filename}"`);
+  }
+  res.send(entry.buffer);
 });
 
 // مدیریت محتوا: FAQ، اطلاعیه‌ها، خوابگاه‌ها، کانون‌ها، برنامه‌های هیئت، سوالات

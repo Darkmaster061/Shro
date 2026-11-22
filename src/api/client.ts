@@ -2,14 +2,21 @@ import type {
   AdminUser,
   AnnouncementItem,
   AuditLogEntry,
+  BreakfastAnalyticsSummary,
+  BreakfastReportFilters,
   CadreItem,
+  CohortGroup,
+  CouponCheckResponse,
   CouponLookupResult,
+  DeskAuthorizedStudent,
+  DetailedBreakfastRecord,
   DormItem,
   FaqItem,
   HeyatProgram,
   MealItem,
   OfflinePendingClaim,
   OfflineScanStudent,
+  ReportColumnKey,
   ScanClaimResponse,
   SiteSettings,
   StudentQuestion,
@@ -60,16 +67,86 @@ export const api = {
   getCadres: () => request<CadreItem[]>('/api/public/basij/cadres'),
   getHeyatPrograms: () => request<HeyatProgram[]>('/api/public/heyat/programs'),
 
-  // ژتون صبحانه و فرم‌های عمومی
+  // ژتون صبحانه (مسیر جدید با شماره دانشجویی + مسیر قدیمی) و فرم‌های عمومی
+  checkStudentNumber: (studentNumber: string, website = '') =>
+    request<CouponCheckResponse>('/api/coupon/check-student-number', {
+      method: 'POST',
+      body: JSON.stringify({ studentNumber, website }),
+    }),
+  registerCouponByStudentNumber: (payload: {
+    studentNumber: string;
+    firstName: string;
+    lastName: string;
+    birthJalali: string;
+    nationalId: string;
+    phone: string;
+    major: string;
+    website?: string;
+  }) =>
+    request<CouponLookupResult>('/api/coupon/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  recoverCouponByStudentNumber: (payload: {
+    studentNumber: string;
+    nationalId: string;
+    website?: string;
+  }) =>
+    request<CouponLookupResult>('/api/coupon/recover', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   lookupCoupon: (payload: {
     firstName: string;
     lastName: string;
     birthJalali: string;
+    dailyCode?: string;
     website?: string;
   }) =>
     request<CouponLookupResult>('/api/coupon/lookup', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  // پنل اپراتور میز استقبال لابی (ثبت کد ۴۰۵) و مدیریت کل (ثبت کد ۴۰۵ و سایر ورودی‌ها)
+  getDeskAuthorized: (q = '') =>
+    request<{
+      items: DeskAuthorizedStudent[];
+      stats: {
+        total: number;
+        pendingForm: number;
+        registered: number;
+        claimed: number;
+      };
+      canAuthorizeNon405: boolean;
+    }>(`/api/desk/authorized?q=${encodeURIComponent(q)}`),
+  authorizeStudentNumber: (payload: {
+    studentNumber: string;
+    cohortGroup?: CohortGroup;
+    note?: string;
+  }) =>
+    request<{
+      ok: boolean;
+      item: DeskAuthorizedStudent;
+      message: string;
+    }>('/api/desk/authorize', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  deleteDeskAuthorized: (id: number) =>
+    request<{ ok: boolean }>(`/api/desk/authorized/${id}`, {
+      method: 'DELETE',
+    }),
+  createDeskPosterToken: (payload?: { siteUrl?: string; autoPrint?: boolean }) =>
+    request<{
+      token: string;
+      filename: string;
+      sizeKb: number;
+      downloadUrl: string;
+      previewUrl: string;
+    }>('/api/desk/poster-token', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
     }),
   submitQuestion: (payload: {
     senderName: string;
@@ -152,6 +229,13 @@ export const api = {
       body: fd,
     });
   },
+  getWalkinConfig: () =>
+    request<{ couponWalkinEnabled: boolean; dailyCode: string }>('/api/admin/walkin-config'),
+  updateWalkinConfig: (payload: { couponWalkinEnabled: boolean; dailyCode: string }) =>
+    request<{ couponWalkinEnabled: boolean; dailyCode: string }>('/api/admin/walkin-config', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
   getAdminStudents: (q = '') =>
     request<StudentRecord[]>(`/api/admin/students?q=${encodeURIComponent(q)}`),
   addStudent: (payload: {
@@ -211,6 +295,35 @@ export const api = {
         created_at: string;
       }[];
     }>('/api/admin/reports/breakfast'),
+  getDetailedBreakfastReport: () =>
+    request<{
+      records: DetailedBreakfastRecord[];
+      analytics: BreakfastAnalyticsSummary;
+      meals: MealItem[];
+      suspicious: {
+        id: number;
+        attempt_type: string;
+        detail: string;
+        created_at: string;
+      }[];
+    }>('/api/admin/reports/breakfast-detailed'),
+  createBreakfastExportToken: (payload: {
+    format: 'xlsx' | 'html' | 'pdf';
+    columns: ReportColumnKey[];
+    filters: Partial<BreakfastReportFilters>;
+    title?: string;
+  }) =>
+    request<{
+      token: string;
+      filename: string;
+      sizeKb: number;
+      downloadUrl: string;
+      previewUrl: string;
+      recordCount: number;
+    }>('/api/admin/reports/export-token', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   getAdminFaqs: () => request<FaqItem[]>('/api/admin/faqs'),
   addFaq: (payload: { category: string; question: string; answer: string }) =>
     request<{ id: number }>('/api/admin/faqs', {

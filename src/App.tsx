@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { PortalProvider } from './context/PortalContext';
+import { motion } from 'motion/react';
+import { PortalProvider, usePortal } from './context/PortalContext';
 import { Layout } from './components/Layout';
 import { WelcomeGate } from './components/WelcomeGate';
 import { IntroSplash } from './components/IntroSplash';
@@ -24,6 +25,15 @@ const AnnouncementsPage = lazy(() =>
 );
 const ContactPage = lazy(() =>
   import('./pages/ContactPage').then((m) => ({ default: m.ContactPage }))
+);
+const GalleryPage = lazy(() =>
+  import('./pages/GalleryPage').then((m) => ({ default: m.GalleryPage }))
+);
+const CouponPage = lazy(() =>
+  import('./pages/CouponPage').then((m) => ({ default: m.CouponPage }))
+);
+const DeskPage = lazy(() =>
+  import('./pages/DeskPage').then((m) => ({ default: m.DeskPage }))
 );
 const ScannerPage = lazy(() =>
   import('./pages/ScannerPage').then((m) => ({ default: m.ScannerPage }))
@@ -57,7 +67,11 @@ function PageFallback() {
 
 function AppShell() {
   const { pathname } = useLocation();
-  const isStaffRoute = pathname.startsWith('/admin') || pathname.startsWith('/scanner');
+  const { liteMode } = usePortal();
+  const isStaffRoute =
+    pathname.startsWith('/admin') ||
+    pathname.startsWith('/scanner') ||
+    pathname.startsWith('/desk');
 
   return (
     <>
@@ -68,21 +82,31 @@ function AppShell() {
       <Suspense fallback={<PageFallback />}>
         {isStaffRoute ? (
           <Routes>
+            <Route path="/desk" element={<DeskPage />} />
             <Route path="/scanner" element={<ScannerPage />} />
             <Route path="/admin" element={<AdminPage />} />
           </Routes>
         ) : (
           <Layout>
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/guide" element={<GuidePage />} />
-              <Route path="/dorms" element={<DormsPage />} />
-              <Route path="/basij" element={<BasijPage />} />
-              <Route path="/heyat" element={<HeyatPage />} />
-              <Route path="/announcements" element={<AnnouncementsPage />} />
-              <Route path="/contact" element={<ContactPage />} />
-              <Route path="*" element={<HomePage />} />
-            </Routes>
+            <motion.div
+              key={pathname}
+              initial={liteMode ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <Routes>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/guide" element={<GuidePage />} />
+                <Route path="/dorms" element={<DormsPage />} />
+                <Route path="/basij" element={<BasijPage />} />
+                <Route path="/heyat" element={<HeyatPage />} />
+                <Route path="/coupon" element={<CouponPage />} />
+                <Route path="/announcements" element={<AnnouncementsPage />} />
+                <Route path="/gallery" element={<GalleryPage />} />
+                <Route path="/contact" element={<ContactPage />} />
+                <Route path="*" element={<HomePage />} />
+              </Routes>
+            </motion.div>
           </Layout>
         )}
       </Suspense>
